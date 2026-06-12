@@ -214,9 +214,19 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const pending = verdicts.filter(v => v.status === 'extra_needed')
     if (pending.length) missing.push(`Extra pieces still needed for: ${pending.map(v => v.label).join(', ')}`)
     if (missing.length) {
-      alert('Cannot submit yet — missing:\n\n• ' + missing.join('\n• '))
+      alert('Cannot submit yet — please complete the following:\n\n• ' + missing.join('\n• '))
       return
     }
+    const confirmed = confirm(
+      `Submit this inspection for approval?\n\n` +
+      `Part: ${insp.part_no}\n` +
+      `PO: ${insp.po_no || '—'}\n` +
+      `Lot: ${insp.lot_size} pcs\n` +
+      `Defects: ${defects.length}\n` +
+      `Disposition: ${insp.summary.disposition}\n\n` +
+      `Once submitted, you cannot make changes unless the approver returns it.`
+    )
+    if (!confirmed) return
     const { error } = await supabase.from('inspections')
       .update({ status: 'submitted', submitted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', insp.id)
