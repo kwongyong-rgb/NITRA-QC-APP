@@ -139,6 +139,22 @@ export default function Inspection({ profile }: { profile: Profile }) {
     load()
   }
 
+  // Undo all selections in a section (current piece)
+  const undoAllSection = async (sectionKey: string) => {
+    if (!insp) return
+    const sec = SECTIONS.find(s => s.key === sectionKey)
+    if (!sec) return
+    const fd = { ...insp.form_data, results: { ...insp.form_data.results } }
+    for (const item of sec.items) {
+      const rkey = `${item.key}:${piece}`
+      const old = fd.results[rkey]
+      delete fd.results[rkey]
+      if (old === 'F') await removeDefect(item.key, piece, 'form')
+    }
+    await saveFd(fd)
+    load()
+  }
+
   // Select all items in a section (current piece)
   const selectAllSection = async (sectionKey: string, val: PFNA) => {
     if (!insp) return
@@ -264,7 +280,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
               const newVal = val === v ? undefined : v
               if (onSet) onSet(newVal)
               else setResult(itemKey, itemLabel, pieceNo, newVal, isMeas)
-              if (newVal === 'F') setModal({ type: 'fail', itemKey, itemLabel, pieceNo, tab: tabName })
             }}>
             {v}
           </button>
@@ -321,7 +336,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
         {TABS.filter(k => k !== '100pct' || triggeredItems.length > 0).map(k => (
           <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}
             style={k === '100pct' ? { background: 'var(--fail)', color: '#fff', borderColor: 'var(--fail)' } : {}}>
-            {k === 'form' ? t('form') : k === 'measure' ? t('measure') : k === 'photos' ? `📷 ${t('photos')} (${photos.length})` : k === 'pallet' ? t('pallet') : k === '100pct' ? '⛔ 100% Check' : t('summary')}
+            {k === 'form' ? 'Visual / 外观' : k === 'measure' ? 'Technical / 技术' : k === 'photos' ? `📷 ${t('photos')} (${photos.length})` : k === 'pallet' ? t('pallet') : k === '100pct' ? '⛔ 100% Check' : t('summary')}
           </button>
         ))}
       </div>
@@ -351,9 +366,15 @@ export default function Inspection({ profile }: { profile: Profile }) {
                       <button className="btn ok" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => selectAllSection(sec.key, 'P')}>All P</button>
                       <button className="btn danger" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => selectAllSection(sec.key, 'F')}>All F</button>
                       <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => selectAllSection(sec.key, 'NA')}>All NA</button>
+                      <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13, borderColor: 'var(--amber)', color: 'var(--amber)' }} onClick={() => undoAllSection(sec.key)}>↩ Undo</button>
                     </div>
                   )}
                 </div>
+                {sec.instruction && (
+                  <div style={{ padding: '8px 12px', background: 'var(--steel)', borderRadius: 8, marginBottom: 10, fontSize: 13, color: 'var(--ink-soft)' }}>
+                    ℹ️ {bi(sec.instruction)}
+                  </div>
+                )}
                 {visibleItems.map(item => {
                   const rkey = `${item.key}:${piece}`
                   const val = insp.form_data.results[rkey]
@@ -389,7 +410,57 @@ export default function Inspection({ profile }: { profile: Profile }) {
             ? <div className="banner warn">Functional sample is {insp.fun_sample} pieces — select piece 1–{insp.fun_sample}.</div>
             : MEAS_SECTIONS.map(msec => (
               <div className="card" key={msec.key}>
-                <h2>{bi(msec.title)} — Piece {piece}</h2>
+                <div className="row" style={{ marginBottom: 8 }}>
+                  <h2 style={{ flex: 1, marginBottom: 0 }}>{bi(msec.title)} — Piece {piece}</h2>
+                  {editable && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn ok" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}
+                        onClick={async () => {
+                          const fd = { ...insp.form_data, meas_results: { ...insp.form_data.meas_results } }
+                          for (const col of msec.cols) {
+                            const rkey = `${col.key}:${piece}`
+                            const old = fd.meas_results[rkey]
+                            fd.meas_results[rkey] = 'P'
+                            if (old === 'F') await removeDefect(col.key, piece, 'measure')
+                          }
+                          await saveFd(fd); load()
+                        }}>All P</button>
+                      <button className="btn danger" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}
+                        onClick={async () => {
+                          const fd = { ...insp.form_data, meas_results: { ...insp.form_data.meas_results } }
+                          for (const col of msec.cols) {
+                            const rkey = `${col.key}:${piece}`
+                            const old = fd.meas_results[rkey]
+                            fd.meas_results[rkey] = 'F'
+                            if (old !== 'F') await ensureDefect(col.key, bi(col.label), piece, 'measure')
+                          }
+                          await saveFd(fd); load()
+                        }}>All F</button>
+                      <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}
+                        onClick={async () => {
+                          const fd = { ...insp.form_data, meas_results: { ...insp.form_data.meas_results } }
+                          for (const col of msec.cols) {
+                            const rkey = `${col.key}:${piece}`
+                            const old = fd.meas_results[rkey]
+                            fd.meas_results[rkey] = 'NA'
+                            if (old === 'F') await removeDefect(col.key, piece, 'measure')
+                          }
+                          await saveFd(fd); load()
+                        }}>All NA</button>
+                      <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13, borderColor: 'var(--amber)', color: 'var(--amber)' }}
+                        onClick={async () => {
+                          const fd = { ...insp.form_data, meas_results: { ...insp.form_data.meas_results } }
+                          for (const col of msec.cols) {
+                            const rkey = `${col.key}:${piece}`
+                            const old = fd.meas_results[rkey]
+                            delete fd.meas_results[rkey]
+                            if (old === 'F') await removeDefect(col.key, piece, 'measure')
+                          }
+                          await saveFd(fd); load()
+                        }}>↩ Undo</button>
+                    </div>
+                  )}
+                </div>
                 {msec.cols.map(col => {
                   const rkey = `${col.key}:${piece}`
                   const val = insp.form_data.meas_results?.[rkey]
