@@ -37,7 +37,7 @@ export default function Login() {
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, cursor: 'pointer' }}>
           <input type="checkbox" checked={stayIn} onChange={e => setStayIn(e.target.checked)}
             style={{ width: 20, height: 20, accentColor: 'var(--navy)' }} />
-          <span style={{ fontSize: 14 }}>Stay signed in on this device / 在此设备保持登录</span>
+          <span style={{ fontSize: 14 }}>{t('staySignedIn')}</span>
         </label>
         {err && <p style={{ color: 'var(--fail)', marginTop: 10, fontSize: 14 }}>{err}</p>}
         <button className="btn" style={{ width: '100%', marginTop: 16 }}

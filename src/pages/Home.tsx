@@ -65,8 +65,8 @@ export default function Home({ profile }: { profile: Profile }) {
                   PO: {r.po_no || '—'} · Batch: {r.batch || '—'} · Lot: {r.lot_size}
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
-                  Updated: {fmt(r.updated_at)}
-                  {r.submitted_at && <> · Submitted: {fmt(r.submitted_at)}</>}
+                  {t('updated')}: {fmt(r.updated_at)}
+                  {r.submitted_at && <> · {t('submitted')}: {fmt(r.submitted_at)}</>}
                 </div>
               </div>
               {canDelete(r) && (
