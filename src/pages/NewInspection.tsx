@@ -11,11 +11,13 @@ export default function NewInspection({ profile }: { profile: Profile }) {
   const nav = useNavigate()
   const [skus, setSkus] = useState<Sku[]>([])
   const [samp, setSamp] = useState<SamplingSettings | null>(null)
+  const [search, setSearch] = useState('')
   const [partNo, setPartNo] = useState('')
   const [po, setPo] = useState('')
   const [batch, setBatch] = useState('')
   const [lot, setLot] = useState(100)
   const [busy, setBusy] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
 
   useEffect(() => {
     supabase.from('skus').select('*').eq('active', true).order('part_no')
@@ -24,8 +26,21 @@ export default function NewInspection({ profile }: { profile: Profile }) {
       .then(({ data }) => setSamp(data?.value as SamplingSettings))
   }, [])
 
+  const filtered = useMemo(() => {
+    if (!search) return skus
+    const q = search.toLowerCase()
+    return skus.filter(s => s.part_no.toLowerCase().includes(q) || s.model.toLowerCase().includes(q) || s.size.includes(q))
+  }, [skus, search])
+
   const sku = useMemo(() => skus.find(s => s.part_no === partNo), [skus, partNo])
   const sizes = useMemo(() => samp ? sampleSizes(lot, samp) : { app: 0, fun: 0 }, [lot, samp])
+
+  const select = (pn: string) => {
+    setPartNo(pn)
+    const s = skus.find(x => x.part_no === pn)
+    setSearch(s ? `${pn} — ${s.model} ${s.size}` : pn)
+    setShowDropdown(false)
+  }
 
   const start = async () => {
     setBusy(true)
@@ -33,7 +48,7 @@ export default function NewInspection({ profile }: { profile: Profile }) {
       part_no: partNo, po_no: po, batch, lot_size: lot,
       app_sample: sizes.app, fun_sample: sizes.fun,
       inspector_id: profile.id,
-      form_data: { results: {}, extra_results: {}, meas_results: {}, meas_extra_results: {}, pallet: {} },
+      form_data: { results: {}, extra_results: {}, meas_results: {}, meas_extra_results: {}, pallet: {}, na_overrides: {} },
     }).select('id').single()
     setBusy(false)
     if (!error && data) nav(`/inspection/${data.id}`)
@@ -44,12 +59,32 @@ export default function NewInspection({ profile }: { profile: Profile }) {
       <div className="card">
         <h2>{t('newInspection')}</h2>
         <div className="grid2">
-          <label className="fld"><span>{t('partNo')}</span>
-            <select className="sel" value={partNo} onChange={e => setPartNo(e.target.value)}>
-              <option value="">—</option>
-              {skus.map(s => <option key={s.part_no} value={s.part_no}>{s.part_no} — {s.model} {s.size}</option>)}
-            </select>
-          </label>
+          {/* Searchable Part No. */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label className="fld"><span>{t('partNo')}</span>
+              <div style={{ position: 'relative' }}>
+                <input className="txt" value={search}
+                  onChange={e => { setSearch(e.target.value); setPartNo(''); setShowDropdown(true) }}
+                  onFocus={() => setShowDropdown(true)}
+                  placeholder="Type to search or scroll…" />
+                {showDropdown && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff',
+                    border:'1.5px solid var(--navy)', borderRadius:8, zIndex:100,
+                    maxHeight:260, overflowY:'auto', boxShadow:'0 4px 20px rgba(0,0,0,.15)' }}>
+                    {filtered.length === 0 && <div className="muted" style={{ padding:12 }}>No matches</div>}
+                    {filtered.map(s => (
+                      <div key={s.part_no} style={{ padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)',
+                        background: s.part_no === partNo ? 'var(--steel)' : '#fff' }}
+                        onClick={() => select(s.part_no)}>
+                        <div style={{ fontWeight:600 }}>{s.part_no}</div>
+                        <div className="muted" style={{ fontSize:13 }}>{s.model} · {s.size} · {s.finish}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </label>
+          </div>
           <label className="fld"><span>{t('poNo')}</span>
             <input className="txt" value={po} onChange={e => setPo(e.target.value)} />
           </label>
@@ -61,21 +96,24 @@ export default function NewInspection({ profile }: { profile: Profile }) {
           </label>
         </div>
         {sku && (
-          <div className="banner ok" style={{ marginTop: 14 }}>
+          <div className="banner ok" style={{ marginTop:14 }}>
             {sku.model} · {sku.size} · PCD {sku.pcd} · ET {sku.offset_txt} · CB {sku.cb_mm} · {sku.finish}
+            {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg} kg</>}
+            {sku.tpms_sensor_mm && <> · TPMS: {sku.tpms_sensor_mm}</>}
           </div>
         )}
-        <div className="row" style={{ marginTop: 8 }}>
-          <div className="card" style={{ flex: 1, marginBottom: 0, textAlign: 'center' }}>
+        <div className="row" style={{ marginTop:12 }}>
+          <div className="card" style={{ flex:1, marginBottom:0, textAlign:'center' }}>
             <div className="muted">{t('appSample')}</div>
-            <div style={{ fontSize: 34, fontFamily: 'var(--display)', fontWeight: 700, color: 'var(--navy)' }}>{sizes.app}</div>
+            <div style={{ fontSize:34, fontFamily:'var(--display)', fontWeight:700, color:'var(--navy)' }}>{sizes.app}</div>
           </div>
-          <div className="card" style={{ flex: 1, marginBottom: 0, textAlign: 'center' }}>
+          <div className="card" style={{ flex:1, marginBottom:0, textAlign:'center' }}>
             <div className="muted">{t('funSample')}</div>
-            <div style={{ fontSize: 34, fontFamily: 'var(--display)', fontWeight: 700, color: 'var(--navy)' }}>{sizes.fun}</div>
+            <div style={{ fontSize:34, fontFamily:'var(--display)', fontWeight:700, color:'var(--navy)' }}>{sizes.fun}</div>
           </div>
         </div>
-        <button className="btn" style={{ width: '100%', marginTop: 16 }} disabled={!partNo || !lot || busy} onClick={start}>
+        <button className="btn" style={{ width:'100%', marginTop:16 }}
+          disabled={!partNo || !lot || busy} onClick={start}>
           {t('start')}
         </button>
       </div>

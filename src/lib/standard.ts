@@ -1,6 +1,3 @@
-// ============================================================
-// NITRA Alloy Wheel Quality Standard — V18 + approved changes
-// ============================================================
 export type Lang = 'en' | 'zh'
 export type Bi = { en: string; zh: string }
 
@@ -9,11 +6,12 @@ export interface ChecklistItem {
   group: 'A' | 'Fn'
   label: Bi
   standard: Bi
+  glossBlackOnly?: boolean   // if true, auto-NA for non-gloss-black finishes
 }
 export interface Section {
   key: string
   title: Bi
-  instruction?: Bi   // plain instruction text shown under header (no P/F/NA)
+  instruction?: Bi
   items: ChecklistItem[]
 }
 
@@ -21,71 +19,44 @@ export const SECTIONS: Section[] = [
   {
     key: 'APPEARANCE',
     title: { en: 'Wheel Finish & TPMS', zh: '轮毂表面处理与TPMS' },
-    instruction: {
-      en: 'Inspect at 100 cm distance, ≥1,000 lux, against approved master sample.',
-      zh: '检验距离100cm，≥1,000勒克斯，对照认可标准样品。'
-    },
+    instruction: { en: 'Inspect at 100 cm distance, ≥1,000 lux, against approved master sample.', zh: '检验距离100cm，≥1,000勒克斯，对照认可标准样品。' },
     items: [
-      { key: 'area_a', group: 'A', label: { en: 'Area A — Front / design', zh: 'A区 — 设计面' },
-        standard: { en: 'Paint 3×≤0.8mm · porosity 2×≤1.0mm · scratch 1×≤5mm · dist 75mm', zh: '漆点3×≤0.8mm · 砂孔2×≤1.0mm · 划痕1×≤5mm · 间距75mm' } },
-      { key: 'area_b', group: 'A', label: { en: 'Area B — Window', zh: 'B区 — 窗口区' },
-        standard: { en: 'Paint 2×≤1.5mm · porosity 2×≤1.0mm · scratch 2×≤5mm · dist 50mm', zh: '漆点2×≤1.5mm · 砂孔2×≤1.0mm · 划痕2×≤5mm · 间距50mm' } },
-      { key: 'area_c', group: 'A', label: { en: 'Area C — Rim well outside', zh: 'C区 — 轮辋外侧' },
-        standard: { en: 'Paint 3×≤2.0mm · porosity 3×≤1.0mm · scratch 3×≤5mm · dist 50mm', zh: '漆点3×≤2.0mm · 砂孔3×≤1.0mm · 划痕3×≤5mm · 间距50mm' } },
-      { key: 'area_c1', group: 'A', label: { en: 'Area C1 — Rim well inside', zh: 'C1区 — 轮辋内侧' },
-        standard: { en: 'Paint 3×≤1.0mm · porosity 2×≤1.0mm · scratch 1×≤5mm · dist 100mm', zh: '漆点3×≤1.0mm · 砂孔2×≤1.0mm · 划痕1×≤5mm · 间距100mm' } },
-      { key: 'area_d', group: 'A', label: { en: 'Area D — Rim horn inside', zh: 'D区 — 轮缘内侧' },
-        standard: { en: 'Paint 3×≤1.0mm · porosity 3×≤1.0mm · scratch 5×≤5mm · dist 100mm', zh: '漆点3×≤1.0mm · 砂孔3×≤1.0mm · 划痕5×≤5mm · 间距100mm' } },
-      { key: 'area_e', group: 'A', label: { en: 'Area E — Valve hole', zh: 'E区 — 气门孔' },
-        standard: { en: 'Free of burrs', zh: '无毛刺' } },
-      { key: 'tpms_hole', group: 'A', label: { en: 'TPMS Hole Dimension', zh: 'TPMS孔尺寸' },
-        standard: { en: 'Per SKU spec (if fitted)', zh: '依SKU规格（如有）' } },
-      { key: 'hat_marks', group: 'A', label: { en: 'No hat marks', zh: '无压痕' },
-        standard: { en: 'Wheel face free of visible hat marks', zh: '轮毂正面须无可见压痕' } },
-      { key: 'orange_peel', group: 'A', label: { en: 'Smooth surface, no orange peel', zh: '表面光滑无橘皮' },
-        standard: { en: 'Per approved sample', zh: '按认可样品' } },
-      { key: 'bolt_cone_paint', group: 'A', label: { en: 'Bolt hole / cone free of paint', zh: '螺栓孔/锥座无涂料' },
-        standard: { en: 'Free of paint', zh: '须无涂料覆盖' } },
-      { key: 'rear_bore_paint', group: 'A', label: { en: 'Rear centre bore + mounting face paint-free', zh: '背面中心孔/安装面无涂料' },
-        standard: { en: 'Free of paint', zh: '须无涂料' } },
-      { key: 'coating_total', group: 'A', label: { en: 'Total coating thickness', zh: '涂层总厚度' },
-        standard: { en: 'Min. between 120–130 µm', zh: '最小120至130µm' } },
-      { key: 'coating_machined', group: 'A', label: { en: 'Machined-area coating', zh: '加工面涂层' },
-        standard: { en: 'Powder ≥80 µm', zh: '粉末≥80µm' } },
+      { key: 'area_a', group: 'A', label: { en: 'Area A — Front / design', zh: 'A区 — 设计面' }, standard: { en: 'Paint 3×≤0.8mm · porosity 2×≤1.0mm · scratch 1×≤5mm · dist 75mm', zh: '漆点3×≤0.8mm · 砂孔2×≤1.0mm · 划痕1×≤5mm · 间距75mm' } },
+      { key: 'area_b', group: 'A', label: { en: 'Area B — Window', zh: 'B区 — 窗口区' }, standard: { en: 'Paint 2×≤1.5mm · porosity 2×≤1.0mm · scratch 2×≤5mm · dist 50mm', zh: '漆点2×≤1.5mm · 砂孔2×≤1.0mm · 划痕2×≤5mm · 间距50mm' } },
+      { key: 'area_c', group: 'A', label: { en: 'Area C — Rim well outside', zh: 'C区 — 轮辋外侧' }, standard: { en: 'Paint 3×≤2.0mm · porosity 3×≤1.0mm · scratch 3×≤5mm · dist 50mm', zh: '漆点3×≤2.0mm · 砂孔3×≤1.0mm · 划痕3×≤5mm · 间距50mm' } },
+      { key: 'area_c1', group: 'A', label: { en: 'Area C1 — Rim well inside', zh: 'C1区 — 轮辋内侧' }, standard: { en: 'Paint 3×≤1.0mm · porosity 2×≤1.0mm · scratch 1×≤5mm · dist 100mm', zh: '漆点3×≤1.0mm · 砂孔2×≤1.0mm · 划痕1×≤5mm · 间距100mm' } },
+      { key: 'area_d', group: 'A', label: { en: 'Area D — Rim horn inside', zh: 'D区 — 轮缘内侧' }, standard: { en: 'Paint 3×≤1.0mm · porosity 3×≤1.0mm · scratch 5×≤5mm · dist 100mm', zh: '漆点3×≤1.0mm · 砂孔3×≤1.0mm · 划痕5×≤5mm · 间距100mm' } },
+      { key: 'area_e', group: 'A', label: { en: 'Area E — Valve hole', zh: 'E区 — 气门孔' }, standard: { en: 'Free of burrs', zh: '无毛刺' } },
+      { key: 'tpms_hole', group: 'A', label: { en: 'TPMS Hole Dimension', zh: 'TPMS孔尺寸' }, standard: { en: 'Per SKU spec (inspector measures and confirms)', zh: '依SKU规格（检验员测量确认）' } },
+      { key: 'hat_marks', group: 'A', label: { en: 'No hat marks', zh: '无压痕' }, standard: { en: 'Wheel face free of visible hat marks', zh: '轮毂正面须无可见压痕' }, glossBlackOnly: true },
+      { key: 'orange_peel', group: 'A', label: { en: 'Smooth surface, no orange peel', zh: '表面光滑无橘皮' }, standard: { en: 'Per approved sample', zh: '按认可样品' }, glossBlackOnly: true },
+      { key: 'bolt_cone_paint', group: 'A', label: { en: 'Bolt hole / cone free of paint', zh: '螺栓孔/锥座无涂料' }, standard: { en: 'Free of paint', zh: '须无涂料覆盖' } },
+      { key: 'rear_bore_paint', group: 'A', label: { en: 'Rear centre bore + mounting face paint-free', zh: '背面中心孔/安装面无涂料' }, standard: { en: 'Free of paint', zh: '须无涂料' } },
+      { key: 'coating_total', group: 'A', label: { en: 'Total coating thickness', zh: '涂层总厚度' }, standard: { en: 'Min. between 120–130 µm', zh: '最小120至130µm' } },
+      { key: 'coating_machined', group: 'A', label: { en: 'Machined-area coating', zh: '加工面涂层' }, standard: { en: 'Powder ≥80 µm', zh: '粉末≥80µm' } },
     ],
   },
   {
     key: 'FINISH',
     title: { en: 'Cap Finish & Fitment', zh: '盖子表面处理与配合' },
     items: [
-      { key: 'cap_color', group: 'A', label: { en: 'Cap Color vs Wheel Color', zh: '盖子颜色与轮毂颜色对比' },
-        standard: { en: 'Cap color must match wheel color per approved sample', zh: '盖子颜色须与轮毂颜色一致，符合认可样品' } },
-      { key: 'cap_fitment', group: 'A', label: { en: 'Cap fitment', zh: '盖子配合' },
-        standard: { en: 'Cap fits tightly on wheel', zh: '盖子须紧密配合轮毂' } },
-      { key: 'logo', group: 'A', label: { en: 'Logo', zh: '标志' },
-        standard: { en: 'Same as approved sample', zh: '与认可样品一致' } },
-      { key: 'cap_finish', group: 'A', label: { en: 'Cap surface finish', zh: '盖子表面处理' },
-        standard: { en: 'Matches approved wheel finish sample', zh: '与认可轮毂样品一致' } },
+      { key: 'cap_color', group: 'A', label: { en: 'Cap Color vs Wheel Color', zh: '盖子颜色与轮毂颜色对比' }, standard: { en: 'Cap color must match wheel color per approved sample', zh: '盖子颜色须与轮毂颜色一致，符合认可样品' } },
+      { key: 'cap_fitment', group: 'A', label: { en: 'Cap fitment', zh: '盖子配合' }, standard: { en: 'Cap fits tightly on wheel', zh: '盖子须紧密配合轮毂' } },
+      { key: 'logo', group: 'A', label: { en: 'Logo', zh: '标志' }, standard: { en: 'Same as approved sample', zh: '与认可样品一致' } },
+      { key: 'cap_finish', group: 'A', label: { en: 'Cap surface finish', zh: '盖子表面处理' }, standard: { en: 'Matches approved wheel finish sample', zh: '与认可轮毂样品一致' } },
     ],
   },
   {
     key: 'MARKING',
     title: { en: 'Marking', zh: '标识' },
     items: [
-      { key: 'laser_format', group: 'Fn', label: { en: 'Laser engraving format', zh: '激光雕刻格式' },
-        standard: { en: 'Model/SIZE/PCD/CB/ET/MAX LOAD/PROD DATE per sample', zh: '按样本格式' } },
-      { key: 'mark_sae', group: 'Fn', label: { en: 'Back marking — SAE J2530', zh: '背面标识 — SAE J2530' },
-        standard: { en: 'Stamped, legible, permanent', zh: '冲压清晰永久' } },
-      { key: 'mark_size', group: 'Fn', label: { en: 'Back marking — SIZE', zh: '背面标识 — 尺寸' },
-        standard: { en: 'Matches SKU', zh: '与SKU一致' } },
-      { key: 'mark_pcd', group: 'Fn', label: { en: 'Back marking — PCD', zh: '背面标识 — 节圆直径' },
-        standard: { en: 'Matches SKU', zh: '与SKU一致' } },
-      { key: 'mark_cb', group: 'Fn', label: { en: 'Back marking — CB', zh: '背面标识 — 中心孔' },
-        standard: { en: 'Matches SKU', zh: '与SKU一致' } },
-      { key: 'mark_et', group: 'Fn', label: { en: 'Back marking — ET', zh: '背面标识 — 偏距' },
-        standard: { en: 'Matches SKU', zh: '与SKU一致' } },
-      { key: 'mark_nitra', group: 'Fn', label: { en: 'Back marking — NITRA brand', zh: '背面标识 — 品牌' },
-        standard: { en: 'Stamped clearly and permanently', zh: '清晰永久冲压' } },
+      { key: 'laser_format', group: 'Fn', label: { en: 'Laser engraving format', zh: '激光雕刻格式' }, standard: { en: 'Model/SIZE/PCD/CB/ET/MAX LOAD/PROD DATE per sample', zh: '按样本格式' } },
+      { key: 'mark_sae', group: 'Fn', label: { en: 'Back marking — SAE J2530', zh: '背面标识 — SAE J2530' }, standard: { en: 'Stamped, legible, permanent', zh: '冲压清晰永久' } },
+      { key: 'mark_size', group: 'Fn', label: { en: 'Back marking — SIZE', zh: '背面标识 — 尺寸' }, standard: { en: 'Matches SKU', zh: '与SKU一致' } },
+      { key: 'mark_pcd', group: 'Fn', label: { en: 'Back marking — PCD', zh: '背面标识 — 节圆直径' }, standard: { en: 'Matches SKU', zh: '与SKU一致' } },
+      { key: 'mark_cb', group: 'Fn', label: { en: 'Back marking — CB', zh: '背面标识 — 中心孔' }, standard: { en: 'Matches SKU', zh: '与SKU一致' } },
+      { key: 'mark_et', group: 'Fn', label: { en: 'Back marking — ET', zh: '背面标识 — 偏距' }, standard: { en: 'Matches SKU', zh: '与SKU一致' } },
+      { key: 'mark_nitra', group: 'Fn', label: { en: 'Back marking — NITRA brand', zh: '背面标识 — 品牌' }, standard: { en: 'Stamped clearly and permanently', zh: '清晰永久冲压' } },
     ],
   },
   {
@@ -119,6 +90,8 @@ export interface MeasCol {
   key: string; label: Bi
   nominal: (sku: Sku) => number | null
   tol: Bi
+  unit: string
+  ref?: string   // reference text instead of numeric tolerance (e.g. TPMS)
   check: (v: number, sku: Sku) => boolean
 }
 export interface MeasSection { key: string; title: Bi; cols: MeasCol[] }
@@ -128,6 +101,12 @@ export interface Sku {
   pcd: string; offset_mm: number; offset_txt: string; cb_mm: number
   lug_hole_mm: number; counter_bore_mm: number; seat_thickness_mm: number
   lug_seat_type: string; finish: string; max_load_lbs: number
+  wheel_weight_kg: number | null; wheel_weight_tol_kg: number
+  tpms_sensor_mm: string
+}
+
+export function isGlossBlack(finish: string) {
+  return finish.toUpperCase().includes('GLOSS BLACK')
 }
 
 export function runoutLimits(d: number) {
@@ -152,37 +131,41 @@ export const MEAS_SECTIONS: MeasSection[] = [
     key: 'machining',
     title: { en: 'Wheel Machining', zh: '轮毂加工' },
     cols: [
-      { key: 'counter_bore', label: { en: 'Counter bore', zh: '埋头孔' },
+      { key: 'counter_bore', label: { en: 'Counter bore', zh: '埋头孔' }, unit: 'mm',
         nominal: s => s.counter_bore_mm, tol: { en: '±0.50 mm', zh: '±0.50 mm' },
         check: (v, s) => Math.abs(v - s.counter_bore_mm) <= 0.5 },
-      { key: 'lug_hole', label: { en: 'Lug hole', zh: '螺栓孔' },
+      { key: 'lug_hole', label: { en: 'Lug hole', zh: '螺栓孔' }, unit: 'mm',
         nominal: s => s.lug_hole_mm, tol: { en: '±0.25 mm', zh: '±0.25 mm' },
         check: (v, s) => Math.abs(v - s.lug_hole_mm) <= 0.25 },
-      { key: 'seat_thick', label: { en: 'Seat thickness', zh: '座厚' },
+      { key: 'seat_thick', label: { en: 'Seat thickness', zh: '座厚' }, unit: 'mm',
         nominal: s => s.seat_thickness_mm, tol: { en: '±0.50 mm', zh: '±0.50 mm' },
         check: (v, s) => Math.abs(v - s.seat_thickness_mm) <= 0.5 },
-      { key: 'offset', label: { en: 'Offset ET', zh: '偏距' },
+      { key: 'offset', label: { en: 'Offset ET', zh: '偏距' }, unit: 'mm',
         nominal: s => s.offset_mm, tol: { en: '±1.00 mm', zh: '±1.00 mm' },
         check: (v, s) => Math.abs(v - s.offset_mm) <= 1.0 },
-      { key: 'cb', label: { en: 'Center bore CB', zh: '中心孔' },
+      { key: 'cb', label: { en: 'Center bore CB', zh: '中心孔' }, unit: 'mm',
         nominal: s => s.cb_mm, tol: { en: '+0/+0.10 mm', zh: '+0/+0.10 mm' },
         check: (v, s) => v - s.cb_mm >= 0 && v - s.cb_mm <= 0.10 },
+      { key: 'wheel_weight', label: { en: 'Wheel weight', zh: '轮毂重量' }, unit: 'kg',
+        nominal: s => s.wheel_weight_kg !== null ? Number((s.wheel_weight_kg).toFixed(3)) : null,
+        tol: { en: '±0.4 kg (±400g)', zh: '±0.4 kg（±400g）' },
+        check: (v, s) => s.wheel_weight_kg !== null ? Math.abs(v - s.wheel_weight_kg) <= (s.wheel_weight_tol_kg ?? 0.4) : true },
     ],
   },
   {
     key: 'oor',
     title: { en: 'Wheel OOR', zh: '轮毂偏摆' },
     cols: [
-      { key: 'radial_top', label: { en: 'Radial top', zh: '径向上' },
+      { key: 'radial_top', label: { en: 'Radial top', zh: '径向上' }, unit: 'mm',
         nominal: s => runoutLimits(s.diameter_in).radial, tol: { en: 'max mm', zh: '最大 mm' },
         check: (v, s) => v <= runoutLimits(s.diameter_in).radial },
-      { key: 'radial_bot', label: { en: 'Radial bottom', zh: '径向下' },
+      { key: 'radial_bot', label: { en: 'Radial bottom', zh: '径向下' }, unit: 'mm',
         nominal: s => runoutLimits(s.diameter_in).radial, tol: { en: 'max mm', zh: '最大 mm' },
         check: (v, s) => v <= runoutLimits(s.diameter_in).radial },
-      { key: 'axial_top', label: { en: 'Axial top', zh: '轴向上' },
+      { key: 'axial_top', label: { en: 'Axial top', zh: '轴向上' }, unit: 'mm',
         nominal: s => runoutLimits(s.diameter_in).axial, tol: { en: 'max mm', zh: '最大 mm' },
         check: (v, s) => v <= runoutLimits(s.diameter_in).axial },
-      { key: 'axial_bot', label: { en: 'Axial bottom', zh: '轴向下' },
+      { key: 'axial_bot', label: { en: 'Axial bottom', zh: '轴向下' }, unit: 'mm',
         nominal: s => runoutLimits(s.diameter_in).axial, tol: { en: 'max mm', zh: '最大 mm' },
         check: (v, s) => v <= runoutLimits(s.diameter_in).axial },
     ],
@@ -191,13 +174,13 @@ export const MEAS_SECTIONS: MeasSection[] = [
     key: 'balance',
     title: { en: 'Wheel Balance', zh: '轮毂动平衡' },
     cols: [
-      { key: 'bal_b', label: { en: 'Balance B (g)', zh: '平衡B(g)' },
+      { key: 'bal_b', label: { en: 'Balance B (g)', zh: '平衡B(g)' }, unit: 'g',
         nominal: s => balanceLimits(s.diameter_in).B, tol: { en: 'max g', zh: '最大g' },
         check: (v, s) => v <= balanceLimits(s.diameter_in).B },
-      { key: 'bal_c', label: { en: 'Balance C (g)', zh: '平衡C(g)' },
+      { key: 'bal_c', label: { en: 'Balance C (g)', zh: '平衡C(g)' }, unit: 'g',
         nominal: s => balanceLimits(s.diameter_in).C, tol: { en: 'max g', zh: '最大g' },
         check: (v, s) => v <= balanceLimits(s.diameter_in).C },
-      { key: 'bal_bc', label: { en: 'Balance B+C (g)', zh: '平衡B+C(g)' },
+      { key: 'bal_bc', label: { en: 'Balance B+C (g)', zh: '平衡B+C(g)' }, unit: 'g',
         nominal: s => balanceLimits(s.diameter_in).BC, tol: { en: 'max g', zh: '最大g' },
         check: (v, s) => v <= balanceLimits(s.diameter_in).BC },
     ],
