@@ -1,0 +1,37 @@
+NITRA QC App — Interactive Report Email Update
+
+Changes included:
+1. Added Supabase Edge Function: interactive-report
+   - Creates a live HTML report link for each inspection.
+   - Shows summary, inspection evaluation criteria, defect log, and photo/video appendix.
+   - Photo/video icons and thumbnails are clickable.
+   - Photos zoom in a modal; videos play in the browser.
+   - Uses service role inside the function so recipients do not need app login.
+
+2. Updated Supabase Edge Function: send-report
+   - Email now sends a "View Full Interactive Report" button instead of relying on PDF interactivity.
+   - Accepts optional recipient emails from the app.
+   - If no direct recipients are provided, it uses Settings > Report distribution list.
+   - Still includes kyong@nitrawheels.com by default.
+
+3. Updated app UI
+   - Summary tab now has "Email Interactive Report".
+   - Approvals page now has "Email Interactive Report".
+   - Approving an inspection still sends the report email automatically through send-report.
+
+Supabase deployment required:
+Run these after deploying the Vercel app:
+
+supabase functions deploy interactive-report
+supabase functions deploy send-report
+
+Required Supabase function secrets:
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+- RESEND_API_KEY
+Optional:
+- REPORT_FROM_EMAIL = NITRA QC <qc@nitrawheels.com>
+- PUBLIC_APP_URL = https://nitra-qc-app.vercel.app
+
+Important:
+Vercel deployment updates the app only. Supabase Edge Functions must also be deployed separately for the interactive email report to work.

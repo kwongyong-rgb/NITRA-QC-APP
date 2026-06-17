@@ -32,6 +32,18 @@ export default function Approvals() {
     load()
   }
 
+
+
+  const emailInteractiveReport = async (id: string) => {
+    const raw = prompt('Enter recipient email(s), separated by commas. Leave blank to use the saved distribution list.')
+    if (raw === null) return
+    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
+    const { data, error } = await supabase.functions.invoke('send-report', { body: { inspection_id: id, emails } })
+    if (error) { alert('Email failed: ' + error.message); return }
+    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
+    alert('Interactive report email sent.\n\nReport link:\n' + (data?.report_url || ''))
+  }
+
   return (
     <div className="page">
       <div className="card">
@@ -49,6 +61,7 @@ export default function Approvals() {
               <button className="btn ok" onClick={() => decide(r.id, 'approved')}>{t('approve')}</button>
               <button className="btn danger" onClick={() => decide(r.id, 'rejected')}>{t('reject')}</button>
               <button className="btn ghost" onClick={() => openInspectionReport(r.id, lang)}>{t('pdfReport')}</button>
+              <button className="btn ghost" onClick={() => emailInteractiveReport(r.id)}>Email Interactive Report</button>
             </div>
           </div>
         ))}

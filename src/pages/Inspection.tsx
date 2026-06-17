@@ -295,6 +295,19 @@ export default function Inspection({ profile }: { profile: Profile }) {
     setSubmitMsg('✓ '+t('submit')); load()
   }
 
+
+
+  const emailInteractiveReport = async () => {
+    if (!insp) return
+    const raw = prompt('Enter recipient email(s), separated by commas. Leave blank to use the saved distribution list.')
+    if (raw === null) return
+    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
+    const { data, error } = await supabase.functions.invoke('send-report', { body: { inspection_id: insp.id, emails } })
+    if (error) { alert('Email failed: ' + error.message); return }
+    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
+    alert('Interactive report email sent.\n\nReport link:\n' + (data?.report_url || ''))
+  }
+
   const getPhotosFor = (itemKey: string, pNo: number) => photos.filter(p => p.item_key===itemKey && p.piece_no===pNo)
   const allItems = SECTIONS.flatMap(s => s.items.map(i => ({ key:i.key, label:bi(i.label) })))
   const allMeasItemsFlat = MEAS_COLS.map(c => ({ key:c.key, label:bi(c.label) }))
@@ -695,6 +708,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
           <div className="row" style={{ alignItems:'center' }}>
             <h2 style={{ flex:1, marginBottom:0 }}>{t('tabSummary')}</h2>
             <button className="btn ghost" style={{ minHeight:40, padding:'6px 14px' }} onClick={() => openInspectionReport(insp.id, lang)}>{t('pdfReport')}</button>
+            <button className="btn" style={{ minHeight:40, padding:'6px 14px' }} onClick={emailInteractiveReport}>Email Interactive Report</button>
           </div>
           <div style={{ height:14 }} />
           <div className="row" style={{ marginBottom:14 }}>

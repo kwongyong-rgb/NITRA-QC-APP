@@ -1,22 +1,44 @@
 // Supabase Edge Function: send-report
+// Sends a concise email with a secure live interactive report link.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
+const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c] as string))
+const normEmails = (items: unknown): string[] => {
+  if (!items) return []
+  const arr = Array.isArray(items) ? items : String(items).split(',')
+  return [...new Set(arr.map(v => String(v).trim()).filter(v => /.+@.+\..+/.test(v)))]
+}
+
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders() })
+  }
+
   try {
-    const { inspection_id } = await req.json()
+    const { inspection_id, emails: requestedEmails } = await req.json()
+    if (!inspection_id) return json({ ok: false, error: 'Missing inspection_id' }, 400)
+
     const supa = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
+
     const { data: insp } = await supa.from('inspections').select('*').eq('id', inspection_id).single()
-    if (!insp) return new Response('not found', { status: 404 })
-    const { data: sku } = await supa.from('skus').select('*').eq('part_no', insp.part_no).single()
-    const { data: defects } = await supa.from('defects').select('*').eq('inspection_id', inspection_id)
-    const { data: inspector } = await supa.from('profiles').select('full_name').eq('id', insp.inspector_id).single()
-    const { data: reviewer } = await supa.from('profiles').select('full_name').eq('id', insp.reviewed_by).single()
-    const { data: dist } = await supa.from('settings').select('value').eq('key', 'distribution').single()
-    const emails: string[] = dist?.value?.emails || []
+    if (!insp) return json({ ok: false, error: 'Inspection not found' }, 404)
+
+    const [{ data: sku }, { data: defects }, { data: inspector }, { data: reviewer }, { data: dist }] = await Promise.all([
+      supa.from('skus').select('*').eq('part_no', insp.part_no).maybeSingle(),
+      supa.from('defects').select('*').eq('inspection_id', inspection_id),
+      supa.from('profiles').select('full_name').eq('id', insp.inspector_id).maybeSingle(),
+      insp.reviewed_by ? supa.from('profiles').select('full_name').eq('id', insp.reviewed_by).maybeSingle() : Promise.resolve({ data: null } as any),
+      supa.from('settings').select('value').eq('key', 'distribution').maybeSingle(),
+    ])
+
+    const distributionEmails = normEmails(dist?.value?.emails)
+    const directEmails = normEmails(requestedEmails)
+    const emails = directEmails.length ? directEmails : distributionEmails
     if (!emails.includes('kyong@nitrawheels.com')) emails.push('kyong@nitrawheels.com')
+    if (!emails.length) return json({ ok: false, error: 'No recipient emails provided' }, 400)
 
     const dispositionLabel: Record<string, string> = {
       release: 'RELEASE', release_record: 'RELEASE WITH RECORD',
@@ -24,64 +46,60 @@ Deno.serve(async (req) => {
     }
     const disposition = dispositionLabel[insp.summary?.disposition] || insp.summary?.disposition || '—'
     const isPass = disposition === 'RELEASE' || disposition === 'RELEASE WITH RECORD'
-    const defectRows = (defects || []).map((d: Record<string, unknown>) =>
-      `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${d.piece_no}</td>
-       <td style="padding:6px 8px;border-bottom:1px solid #eee">${d.item_label || d.item_key}</td>
-       <td style="padding:6px 8px;border-bottom:1px solid #eee">${String(d.defect_type||'').replace(/_/g,' ')}</td>
-       <td style="padding:6px 8px;border-bottom:1px solid #eee">${d.severity}</td>
-       <td style="padding:6px 8px;border-bottom:1px solid #eee">${d.measurement_value !== null ? `${d.measurement_value} ${d.measurement_unit}` : '—'}</td></tr>`
-    ).join('')
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!.replace(/\/$/, '')
+    const reportUrl = `${supabaseUrl}/functions/v1/interactive-report?id=${encodeURIComponent(inspection_id)}`
 
+    const defectCount = (defects || []).length
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;color:#18222E;max-width:700px;margin:0 auto;padding:20px">
+<body style="font-family:Arial,sans-serif;color:#18222E;max-width:720px;margin:0 auto;padding:20px;background:#F4F7FA">
 <div style="background:#1F3A5F;padding:20px 24px;border-radius:10px 10px 0 0">
-  <div style="color:#fff;font-size:22px;font-weight:700">NITRA FLOWFORGED</div>
-  <div style="color:#9FB6D4;font-size:14px;margin-top:4px">QC Inspection Report</div>
+  <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:1px">NITRA</div>
+  <div style="color:#9FB6D4;font-size:14px;margin-top:4px">QC Interactive Report</div>
 </div>
-<div style="background:${isPass?'#E3F3EA':'#FBE9E7'};border:1px solid ${isPass?'#1F8A4C':'#C0392B'};
-  padding:12px 24px;font-weight:700;font-size:16px;color:${isPass?'#1F8A4C':'#C0392B'}">${disposition}</div>
-<div style="border:1px solid #D5DBE4;border-top:none;padding:20px 24px">
-<table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px;width:40%">Part No.</td><td style="font-weight:600">${insp.part_no}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Model / Size</td><td>${sku?.model||'—'} ${sku?.size||''}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">PO No.</td><td>${insp.po_no||'—'}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Batch</td><td>${insp.batch||'—'}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Lot size</td><td>${insp.lot_size} pcs</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">App sample</td><td>${insp.app_sample} pcs</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Fun sample</td><td>${insp.fun_sample} pcs</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Inspector</td><td>${inspector?.full_name||'—'}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Submitted</td><td>${insp.submitted_at ? new Date(insp.submitted_at).toLocaleString() : '—'}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Approved by</td><td>${reviewer?.full_name||'—'}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Approved on</td><td>${insp.reviewed_at ? new Date(insp.reviewed_at).toLocaleString() : '—'}</td></tr>
-  <tr><td style="padding:6px 0;color:#5A6878;font-size:13px">Defects</td>
-    <td style="font-weight:600;color:${(defects||[]).length>0?'#C0392B':'#1F8A4C'}">${(defects||[]).length}</td></tr>
-</table>
-${insp.summary?.remarks ? `<div style="background:#F7F9FB;border-radius:8px;padding:12px 16px;margin-bottom:20px"><div style="font-size:12px;color:#5A6878;margin-bottom:4px">REMARKS</div><div>${insp.summary.remarks}</div></div>` : ''}
-${defectRows ? `<h3 style="color:#1F3A5F;margin-bottom:10px">Defect Log</h3>
-<table style="width:100%;border-collapse:collapse;font-size:13px">
-<thead><tr style="background:#1F3A5F;color:#fff">
-  <th style="padding:8px;text-align:left">Piece</th><th style="padding:8px;text-align:left">Parameter</th>
-  <th style="padding:8px;text-align:left">Type</th><th style="padding:8px;text-align:left">Severity</th>
-  <th style="padding:8px;text-align:left">Value</th></tr></thead>
-<tbody>${defectRows}</tbody></table>` : '<p style="color:#1F8A4C;font-weight:600">✓ No defects logged.</p>'}
+<div style="background:${isPass?'#E3F3EA':'#FBE9E7'};border:1px solid ${isPass?'#1F8A4C':'#C0392B'};padding:12px 24px;font-weight:700;font-size:16px;color:${isPass?'#1F8A4C':'#C0392B'}">${esc(disposition)}</div>
+<div style="background:#fff;border:1px solid #D5DBE4;border-top:none;padding:22px 24px">
+  <p style="margin-top:0">A NITRA QC inspection report is ready for review. Click the button below to open the live interactive report with clickable photo/video evidence.</p>
+  <table style="width:100%;border-collapse:collapse;margin:14px 0 20px">
+    <tr><td style="padding:6px 0;color:#5A6878;width:38%">Part No.</td><td style="font-weight:600">${esc(insp.part_no)}</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">Model / Size</td><td>${esc(sku?.model||'—')} ${esc(sku?.size||'')}</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">PO No.</td><td>${esc(insp.po_no||'—')}</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">Batch</td><td>${esc(insp.batch||'—')}</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">Lot size</td><td>${esc(insp.lot_size)} pcs</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">Defects logged</td><td style="font-weight:600;color:${defectCount>0?'#C0392B':'#1F8A4C'}">${defectCount}</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">Inspector</td><td>${esc(inspector?.full_name||'—')}</td></tr>
+    <tr><td style="padding:6px 0;color:#5A6878">Approved by</td><td>${esc(reviewer?.full_name||'—')}</td></tr>
+  </table>
+  <p style="text-align:center;margin:26px 0"><a href="${esc(reportUrl)}" style="background:#1F3A5F;color:#fff;text-decoration:none;padding:14px 22px;border-radius:8px;font-weight:700;display:inline-block">View Full Interactive Report</a></p>
+  <p style="font-size:12px;color:#5A6878">If the button does not work, copy and paste this link into your browser:<br><a href="${esc(reportUrl)}">${esc(reportUrl)}</a></p>
 </div>
 <div style="background:#F7F9FB;border:1px solid #D5DBE4;border-top:none;padding:12px 24px;border-radius:0 0 10px 10px">
-  <p style="color:#5A6878;font-size:11px;margin:0">CONFIDENTIAL — PROPERTY OF NITRA FLOWFORGED</p>
+  <p style="color:#5A6878;font-size:11px;margin:0">CONFIDENTIAL — PROPERTY OF NITRA</p>
 </div></body></html>`
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'NITRA QC <kyong@nitrawheels.com>',
+        from: Deno.env.get('REPORT_FROM_EMAIL') || 'NITRA QC <qc@nitrawheels.com>',
         to: emails,
-        subject: `QC Report — ${insp.part_no} · ${disposition} · PO ${insp.po_no||'—'}`,
+        subject: `QC Interactive Report — ${insp.part_no} · ${disposition} · PO ${insp.po_no || '—'}`,
         html,
       }),
     })
-    const result = await res.json()
-    return new Response(JSON.stringify({ ok: res.ok, result }), { headers: { 'Content-Type': 'application/json' } })
+    const result = await res.json().catch(() => ({}))
+    return json({ ok: res.ok, emails, report_url: reportUrl, result }, res.ok ? 200 : 500)
   } catch (e) {
-    return new Response(String(e), { status: 500 })
+    return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500)
   }
 })
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } })
+}
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  }
+}
