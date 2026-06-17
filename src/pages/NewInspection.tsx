@@ -98,7 +98,7 @@ export default function NewInspection({ profile }: { profile: Profile }) {
         {sku && (
           <div className="banner ok" style={{ marginTop:14 }}>
             {sku.model} · {sku.size} · PCD {sku.pcd} · ET {sku.offset_txt} · CB {sku.cb_mm} · {sku.finish}
-            {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg} kg</>}
+            {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg.toFixed(2)} kg</>}
             {sku.tpms_sensor_mm && <> · TPMS: {sku.tpms_sensor_mm}</>}
           </div>
         )}

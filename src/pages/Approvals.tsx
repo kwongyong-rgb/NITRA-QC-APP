@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
+import { openInspectionReport } from '../lib/report'
 
 interface Row { id: string; part_no: string; po_no: string; lot_size: number; status: string; submitted_at: string; inspector_id: string }
 
 export default function Approvals() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [rows, setRows] = useState<Row[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
   const [note, setNote] = useState<Record<string, string>>({})
@@ -47,6 +48,7 @@ export default function Approvals() {
             <div className="row">
               <button className="btn ok" onClick={() => decide(r.id, 'approved')}>{t('approve')}</button>
               <button className="btn danger" onClick={() => decide(r.id, 'rejected')}>{t('reject')}</button>
+              <button className="btn ghost" onClick={() => openInspectionReport(r.id, lang)}>{t('pdfReport')}</button>
             </div>
           </div>
         ))}

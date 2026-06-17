@@ -91,6 +91,7 @@ const STR = {
   fails:          { en: 'Fails',                      zh: '不合格' },
   remaining:      { en: 'Remaining',                  zh: '待检' },
   checkingFor:    { en: 'Checking for',               zh: '检查项目' },
+  pdfReport:      { en: '📄 PDF Report',               zh: '📄 PDF报告' },
 } satisfies Record<string, Bi>
 
 type Key = keyof typeof STR

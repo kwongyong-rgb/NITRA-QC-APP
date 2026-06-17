@@ -8,6 +8,7 @@ import { DefectModal, PassPhotoModal, ReassignModal, MediaThumb } from '../compo
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
 import HundredPctCheck from '../components/HundredPctCheck'
 import { REF_MAP } from '../lib/refmap'
+import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
 
 type Tab5 = 'form'|'measure'|'pallet'|'extra'|'100pct'
@@ -65,7 +66,7 @@ const SLOT_SUGGEST: Record<string,string[]> = {
 
 export default function Inspection({ profile }: { profile: Profile }) {
   const { id } = useParams()
-  const { t, bi } = useI18n()
+  const { t, bi, lang } = useI18n()
   const [insp, setInsp] = useState<Insp|null>(null)
   const [sku, setSku] = useState<Sku|null>(null)
   const [defects, setDefects] = useState<Defect[]>([])
@@ -400,7 +401,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
       <div className="card">
         <div className="row"><h2 style={{ flex:1 }}>{insp.part_no} <span className={`pill ${insp.status}`}>{insp.status}</span></h2></div>
         <p className="muted">{sku.model} · {sku.size} · PCD {sku.pcd} · ET {sku.offset_txt} · CB {sku.cb_mm} · {sku.finish}
-          {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg} kg</>}</p>
+          {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg.toFixed(2)} kg</>}</p>
         <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {insp.app_sample} · Fun: {insp.fun_sample}</p>
         {insp.status==='rejected' && insp.review_note && <div className="banner bad" style={{ marginTop:8 }}>↩ {insp.review_note}</div>}
         {submitMsg && <div className="banner ok" style={{ marginTop:8 }}>{submitMsg}</div>}
@@ -680,7 +681,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {/* ── SUMMARY TAB ── */}
       {tab==='summary' && (
         <div className="card">
-          <h2>{t('tabSummary')}</h2>
+          <div className="row" style={{ alignItems:'center' }}>
+            <h2 style={{ flex:1, marginBottom:0 }}>{t('tabSummary')}</h2>
+            <button className="btn ghost" style={{ minHeight:40, padding:'6px 14px' }} onClick={() => openInspectionReport(insp.id, lang)}>{t('pdfReport')}</button>
+          </div>
+          <div style={{ height:14 }} />
           <div className="row" style={{ marginBottom:14 }}>
             <div className="card" style={{ flex:1, marginBottom:0, textAlign:'center' }}>
               <div className="muted">{t('defectsLogged')}</div>

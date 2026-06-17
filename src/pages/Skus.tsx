@@ -45,6 +45,11 @@ export default function Skus() {
         seat_thickness_mm: Number(r['LUG_SEAT_THICKNESS_1_MM'] || 0), lug_seat_type: String(r['LUG_SEAT'] || ''),
         finish: String(r['FACTORY_FINISH_NAME'] || ''), max_load_lbs: Number(r['LOAD_RATING_LBS'] || 0),
         upc_code: String(r['UPC_CODE'] || ''), fitment: String(r['FITMENT'] || ''), active: true,
+        // File stores weight in lbs (col WHEEL_WEIGHT_LBS); app stores & shows kg.
+        wheel_weight_kg: r['WHEEL_WEIGHT_LBS'] != null && r['WHEEL_WEIGHT_LBS'] !== ''
+          ? Number((Number(r['WHEEL_WEIGHT_LBS']) * 0.45359237).toFixed(3)) : null,
+        wheel_weight_tol_kg: 0.4,
+        tpms_sensor_mm: String(r['TPMS_SENSOR_MM'] || '').trim().replace(/[xX]/g, '×'),
       }
     })
     const { error } = await supabase.from('skus').upsert(out)
@@ -70,12 +75,13 @@ export default function Skus() {
           {msg && <span className="muted">{msg}</span>}
         </div>
         <table className="tbl">
-          <thead><tr><th>Part No.</th><th>Model</th><th>Size</th><th>PCD</th><th>ET</th><th>CB</th><th>Finish</th><th /></tr></thead>
+          <thead><tr><th>Part No.</th><th>Model</th><th>Size</th><th>PCD</th><th>ET</th><th>CB</th><th>Finish</th><th>Wt(kg)</th><th>TPMS</th><th /></tr></thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.part_no}>
                 <td>{r.part_no}</td><td>{r.model}</td><td>{r.size}</td><td>{r.pcd}</td>
                 <td>{r.offset_txt}</td><td>{r.cb_mm}</td><td>{r.finish}</td>
+                <td>{r.wheel_weight_kg ?? '—'}</td><td>{r.tpms_sensor_mm || '—'}</td>
                 <td><button className="btn ghost" style={{ minHeight: 36, padding: '4px 10px' }} onClick={() => setEdit(r)}>✎</button></td>
               </tr>
             ))}
@@ -93,6 +99,8 @@ export default function Skus() {
             {F('counter_bore_mm', 'Counter bore mm', 'number')}{F('seat_thickness_mm', 'Seat thickness mm', 'number')}
             {F('lug_seat_type', 'Lug seat type')}{F('finish', 'Finish')}
             {F('max_load_lbs', 'Max load lbs', 'number')}{F('upc_code', 'UPC')}{F('fitment', 'Fitment')}
+            {F('wheel_weight_kg', 'Wheel weight (kg)', 'number')}{F('wheel_weight_tol_kg', 'Weight tol ± (kg)', 'number')}
+            {F('tpms_sensor_mm', 'TPMS sensor (mm)')}
           </div>
           <div className="row" style={{ marginTop: 14 }}>
             <button className="btn" onClick={save}>{t('save')}</button>
