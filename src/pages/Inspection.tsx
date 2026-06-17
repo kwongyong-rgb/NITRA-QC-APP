@@ -295,16 +295,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
     setSubmitMsg('✓ '+t('submit')); load()
   }
 
-  if (loadErr) return (
-    <div className="page" style={{ paddingTop:24 }}>
-      <div className="card" style={{ border:'2px solid var(--fail)' }}>
-        <h2 style={{ color:'var(--fail)' }}>Could not load inspection / 无法加载检验单</h2>
-        <p className="muted" style={{ whiteSpace:'pre-wrap' }}>{loadErr}</p>
-      </div>
-    </div>
-  )
-  if (!insp || !sku) return <div className="page" style={{ textAlign:'center', paddingTop:40 }}>Loading…</div>
-
   const getPhotosFor = (itemKey: string, pNo: number) => photos.filter(p => p.item_key===itemKey && p.piece_no===pNo)
   const allItems = SECTIONS.flatMap(s => s.items.map(i => ({ key:i.key, label:bi(i.label) })))
   const allMeasItemsFlat = MEAS_COLS.map(c => ({ key:c.key, label:bi(c.label) }))
@@ -365,7 +355,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
 
   const triggeredItems = verdicts.filter(v=>v.status==='full_inspection').map(v=>({ key:v.key, label:v.label }))
-  const nPieces = insp.app_sample
+  const nPieces = insp?.app_sample ?? 0
 
   // ── Photos tab grouping ──────────────────────────────────
   const groupedPhotos = useMemo(() => {
@@ -404,6 +394,17 @@ export default function Inspection({ profile }: { profile: Profile }) {
       return next
     })
   }
+
+  // Keep all hooks above these early returns. React error #310 can happen if a hook is skipped on the loading render.
+  if (loadErr) return (
+    <div className="page" style={{ paddingTop:24 }}>
+      <div className="card" style={{ border:'2px solid var(--fail)' }}>
+        <h2 style={{ color:'var(--fail)' }}>Could not load inspection / 无法加载检验单</h2>
+        <p className="muted" style={{ whiteSpace:'pre-wrap' }}>{loadErr}</p>
+      </div>
+    </div>
+  )
+  if (!insp || !sku) return <div className="page" style={{ textAlign:'center', paddingTop:40 }}>Loading…</div>
 
   return (
     <div className="page">
