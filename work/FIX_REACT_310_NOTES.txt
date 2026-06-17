@@ -1,0 +1,1 @@
+Fixed React runtime error #310 on Inspection page by ensuring groupedPhotos useMemo hook is always called before any early loading/error return. Also guarded nPieces while inspection is loading. Build verified with npm run build.
