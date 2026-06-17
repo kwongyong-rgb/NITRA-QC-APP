@@ -145,7 +145,14 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
       if (n > 0) return lang === 'en' ? `Piece ${n}` : `第 ${n} 件`
       return '—'
     }
-    const pieceList = (pieces: number[]) => pieces.length ? pieces.map(pieceName).join(', ') : '—'
+    const pieceShort = (pieceNo: number | string) => {
+      const n = Number(pieceNo)
+      if (!Number.isFinite(n)) return esc(pieceNo)
+      if (n < 0) return `#E${-n}`
+      if (n > 0) return `#${n}`
+      return '—'
+    }
+    const pieceList = (pieces: number[]) => pieces.length ? pieces.map(pieceShort).join(', ') : '—'
     const resultFor = (itemKey: string, pieceNo: number, tab: 'form' | 'measure') =>
       tab === 'measure' ? fd.meas_results?.[`${itemKey}:${pieceNo}`] : fd.results?.[`${itemKey}:${pieceNo}`]
     const extraFor = (itemKey: string, tab: 'form' | 'measure') =>
@@ -190,7 +197,7 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
       }
 
       const cls = verdict?.status === 'full_inspection' ? 'full' : verdict?.status === 'monitor' ? 'monitor' : verdict?.status === 'extra_needed' ? 'extra' : 'monitor'
-      return `<tr><td>${esc(item.label)}</td><td>${checked} / ${verdict?.status === 'full_inspection' && hEntries.length ? insp.lot_size : item.sample}</td>
+      return `<tr><td>${esc(item.label)}</td><td>${checked}</td>
         <td style="color:var(--pass);font-weight:700">${pass}</td>
         <td style="color:var(--fail);font-weight:700">${fail}</td>
         <td style="font-size:11px">${pieceList(failingPieces)}</td>
@@ -205,21 +212,20 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
     })
     const firstPhotoForDefect = (d: DefectRow) => photos.find(p => p.defect_id === d.id)
     const defectRows = sortedDefects.map(d => {
-      const pieceTxt = d.tab === 'pallet' ? '—' : pieceName(d.piece_no)
+      const pieceTxt = d.tab === 'pallet' ? '—' : pieceShort(d.piece_no)
       const ph = firstPhotoForDefect(d)
       const url = ph ? urlMap[ph.storage_path] : ''
       const icon = ph?.media_type === 'video' ? '🎥' : '📷'
       const phTxt = ph && url ? `<a class="photo-link" href="${esc(url)}" target="_blank" rel="noopener">${icon}</a>` : (ph ? icon : '—')
-      const comment = d.comment || d.defect_type?.replace(/_/g, ' ') || '—'
       return `<tr><td>${esc(d.item_label || paramLabel(d.item_key))}</td>
-        <td>${esc(pieceTxt)}</td><td>${esc(comment)}</td><td>${phTxt}</td></tr>`
+        <td>${esc(pieceTxt)}</td><td>${phTxt}</td></tr>`
     }).join('')
     // ── Photo appendix ──
     const figFor = (p: PhotoRow, caption?: string) => {
       const cls = p.is_pass_photo ? 'p' : 'f'
       const tag = p.is_pass_photo ? (lang === 'en' ? 'PASS' : '合格') : (lang === 'en' ? 'FAIL' : '不合格')
       const url = urlMap[p.storage_path]
-      const piece = p.piece_no < 0 ? (lang === 'en' ? `Extra ${-p.piece_no}` : `加检 ${-p.piece_no}`) : p.piece_no > 0 ? (lang === 'en' ? `Piece ${p.piece_no}` : `第 ${p.piece_no} 件`) : ''
+      const piece = p.piece_no ? pieceName(p.piece_no) : ''
       const media = p.media_type === 'video'
         ? (url ? `<a href="${esc(url)}" target="_blank" rel="noopener"><div class="ph ${cls}">🎥</div></a>` : `<div class="ph ${cls}">🎥</div>`)
         : url ? `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="ph ${cls}" src="${esc(url)}" title="Open full-size image"></a>` : `<div class="ph ${cls}">📷</div>`
@@ -300,7 +306,7 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
 
   <h3>${lang === 'en' ? 'Defect Log' : '缺陷记录'} <small>${defects.length} ${lang === 'en' ? 'logged (one row per failed piece)' : '条（每件一行）'}</small></h3>
   ${defects.length
-    ? `<table class="grid"><tr><th>${lang === 'en' ? 'Inspected Parameter' : '检验项目'}</th><th>${lang === 'en' ? 'Piece #' : '件号'}</th><th>${lang === 'en' ? 'Notes' : '备注'}</th><th>${lang === 'en' ? 'Photo' : '照片'}</th></tr>${defectRows}</table>`
+    ? `<table class="grid"><tr><th>${lang === 'en' ? 'Inspected Parameter' : '检验项目'}</th><th>${lang === 'en' ? 'Piece #' : '件号'}</th><th>${lang === 'en' ? 'Photo' : '照片'}</th></tr>${defectRows}</table>`
     : `<div style="color:var(--ink-soft)">${lang === 'en' ? 'No defects logged.' : '暂无缺陷记录。'}</div>`}
 
   ${insp.summary?.remarks
