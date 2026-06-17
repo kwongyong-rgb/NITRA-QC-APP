@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
@@ -18,6 +18,7 @@ export default function NewInspection({ profile }: { profile: Profile }) {
   const [lot, setLot] = useState(100)
   const [busy, setBusy] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     supabase.from('skus').select('*').eq('active', true).order('part_no')
@@ -26,13 +27,26 @@ export default function NewInspection({ profile }: { profile: Profile }) {
       .then(({ data }) => setSamp(data?.value as SamplingSettings))
   }, [])
 
-  const filtered = useMemo(() => {
-    if (!search) return skus
-    const q = search.toLowerCase()
-    return skus.filter(s => s.part_no.toLowerCase().includes(q) || s.model.toLowerCase().includes(q) || s.size.includes(q))
-  }, [skus, search])
+  // Close the SKU dropdown when clicking anywhere outside it
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setShowDropdown(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
 
   const sku = useMemo(() => skus.find(s => s.part_no === partNo), [skus, partNo])
+  const selectedLabel = sku ? `${sku.part_no} — ${sku.model} ${sku.size}` : ''
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return skus
+    // When a SKU is already selected and its label fills the box, show the full
+    // list rather than filtering the combined label string down to "No matches".
+    if (sku && search === selectedLabel) return skus
+    return skus.filter(s => s.part_no.toLowerCase().includes(q) || s.model.toLowerCase().includes(q) || s.size.includes(q))
+  }, [skus, search, sku, selectedLabel])
+
   const sizes = useMemo(() => samp ? sampleSizes(lot, samp) : { app: 0, fun: 0 }, [lot, samp])
 
   const select = (pn: string) => {
@@ -51,7 +65,8 @@ export default function NewInspection({ profile }: { profile: Profile }) {
       form_data: { results: {}, extra_results: {}, meas_results: {}, meas_extra_results: {}, pallet: {}, na_overrides: {} },
     }).select('id').single()
     setBusy(false)
-    if (!error && data) nav(`/inspection/${data.id}`)
+    if (error) { alert('Could not start inspection / 无法开始检验:\n\n' + error.message); return }
+    if (data) nav(`/inspection/${data.id}`)
   }
 
   return (
@@ -62,7 +77,7 @@ export default function NewInspection({ profile }: { profile: Profile }) {
           {/* Searchable Part No. */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label className="fld"><span>{t('partNo')}</span>
-              <div style={{ position: 'relative' }}>
+              <div ref={boxRef} style={{ position: 'relative' }}>
                 <input className="txt" value={search}
                   onChange={e => { setSearch(e.target.value); setPartNo(''); setShowDropdown(true) }}
                   onFocus={() => setShowDropdown(true)}

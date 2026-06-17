@@ -10,6 +10,7 @@ import Approvals from './pages/Approvals'
 import Settings from './pages/Settings'
 import Skus from './pages/Skus'
 import RefLibrary from './pages/RefLibrary'
+import ErrorBoundary from './components/ErrorBoundary'
 
 export interface Profile { id: string; full_name: string; role: 'inspector' | 'approver' }
 
@@ -51,15 +52,17 @@ export default function App() {
         <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '中文' : 'EN'}</button>
         <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>{t('signOut')}</button>
       </header>
-      <Routes>
-        <Route path="/" element={<Home profile={profile} />} />
-        <Route path="/new" element={<NewInspection profile={profile} />} />
-        <Route path="/inspection/:id" element={<Inspection profile={profile} />} />
-        <Route path="/approvals" element={profile.role === 'approver' ? <Approvals /> : <Navigate to="/" />} />
-        <Route path="/settings" element={profile.role === 'approver' ? <Settings /> : <Navigate to="/" />} />
-        <Route path="/skus" element={profile.role === 'approver' ? <Skus /> : <Navigate to="/" />} />
-        <Route path="/reference" element={<RefLibrary profile={profile} />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<Home profile={profile} />} />
+          <Route path="/new" element={<NewInspection profile={profile} />} />
+          <Route path="/inspection/:id" element={<Inspection profile={profile} />} />
+          <Route path="/approvals" element={profile.role === 'approver' ? <Approvals /> : <Navigate to="/" />} />
+          <Route path="/settings" element={profile.role === 'approver' ? <Settings /> : <Navigate to="/" />} />
+          <Route path="/skus" element={profile.role === 'approver' ? <Skus /> : <Navigate to="/" />} />
+          <Route path="/reference" element={<RefLibrary profile={profile} />} />
+        </Routes>
+      </ErrorBoundary>
     </>
   )
 }

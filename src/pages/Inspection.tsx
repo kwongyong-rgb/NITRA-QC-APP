@@ -69,6 +69,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const { t, bi, lang } = useI18n()
   const [insp, setInsp] = useState<Insp|null>(null)
   const [sku, setSku] = useState<Sku|null>(null)
+  const [loadErr, setLoadErr] = useState('')
   const [defects, setDefects] = useState<Defect[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
   const [photoUrls, setPhotoUrls] = useState<Record<string,string>>({})
@@ -83,8 +84,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [slotForCapture, setSlotForCapture] = useState('')
 
   const load = useCallback(async () => {
-    const { data: i } = await supabase.from('inspections').select('*').eq('id', id).single()
-    if (!i) return
+    const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
+    if (ie || !i) { setLoadErr(ie?.message || 'Inspection not found'); return }
     const fi: Insp = {
       ...(i as Insp),
       form_data: { ...emptyFormData(), na_overrides: {}, ...(i as Insp).form_data },
@@ -92,7 +93,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
       summary: (i as Insp).summary || {},
     }
     setInsp(fi)
-    const { data: s } = await supabase.from('skus').select('*').eq('part_no', i.part_no).single()
+    const { data: s, error: se } = await supabase.from('skus').select('*').eq('part_no', i.part_no).single()
+    if (se || !s) { setLoadErr(`SKU "${i.part_no}" not found` + (se ? `: ${se.message}` : '')); return }
     setSku(s as Sku)
     const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
     setDefects((d as Defect[]) || [])
@@ -293,6 +295,14 @@ export default function Inspection({ profile }: { profile: Profile }) {
     setSubmitMsg('✓ '+t('submit')); load()
   }
 
+  if (loadErr) return (
+    <div className="page" style={{ paddingTop:24 }}>
+      <div className="card" style={{ border:'2px solid var(--fail)' }}>
+        <h2 style={{ color:'var(--fail)' }}>Could not load inspection / 无法加载检验单</h2>
+        <p className="muted" style={{ whiteSpace:'pre-wrap' }}>{loadErr}</p>
+      </div>
+    </div>
+  )
   if (!insp || !sku) return <div className="page" style={{ textAlign:'center', paddingTop:40 }}>Loading…</div>
 
   const getPhotosFor = (itemKey: string, pNo: number) => photos.filter(p => p.item_key===itemKey && p.piece_no===pNo)
