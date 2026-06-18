@@ -251,7 +251,13 @@ function mediaCard(p: any, mediaUrl: string, label: string) {
 }
 
 function htmlResponse(body: string, status = 200) {
-  return new Response(body, { status, headers: { ...corsHeaders(), 'Content-Type': 'text/html; charset=utf-8' } })
+  const headers = new Headers()
+  headers.set('Content-Type', 'text/html; charset=utf-8')
+  headers.set('Cache-Control', 'no-store')
+  headers.set('Access-Control-Allow-Origin', '*')
+  headers.set('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type')
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  return new Response(body, { status, headers })
 }
 function corsHeaders() {
   return {
