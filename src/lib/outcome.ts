@@ -20,7 +20,8 @@ type AnyFd = {
   hundred_pct?: Record<string, Record<string, string>>
 } | null | undefined
 
-export function computeOutcomes(fd: AnyFd, labelOf: (k: string) => string): OutcomeRow[] {
+export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string): OutcomeRow[] {
+  const fd = (fdInput || {}) as AnyFd
   const baseV = fd?.results || {}
   const baseT = fd?.meas_results || {}
   const extraV = fd?.extra_results || {}
