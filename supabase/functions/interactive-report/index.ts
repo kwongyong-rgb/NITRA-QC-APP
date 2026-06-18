@@ -23,6 +23,84 @@ const dispositionLabel: Record<string, { text: string; cls: string }> = {
   reject: { text: 'REJECT', cls: 'fail' },
 }
 
+const LABELS: Record<string, string> = {
+  area_a: 'Area A — Front / design',
+  area_b: 'Area B — Window',
+  area_c: 'Area C — Rim well outside',
+  area_c1: 'Area C1 — Rim well inside',
+  area_d: 'Area D — Rim horn inside',
+  area_e: 'Area E — Valve hole',
+  axial_bot: 'Axial bottom',
+  axial_top: 'Axial top',
+  bal_b: 'Balance B (g)',
+  bal_bc: 'Balance B+C (g)',
+  bal_c: 'Balance C (g)',
+  batch_laser: 'Batch no. / laser engraving',
+  bolt_cone_paint: 'Bolt hole / cone free of paint',
+  box_label: 'Box label + UPC',
+  bx_design: 'Box design matches sample',
+  bx_label: 'Box label format & size',
+  bx_proddate: 'Production date below UPC',
+  bx_stick: 'Stick-on label square, no slant',
+  bx_upc: 'UPC-A scans',
+  cap_color: 'Cap Color vs Wheel Color',
+  cap_finish: 'Cap surface finish',
+  cap_fitment: 'Cap fitment',
+  cb: 'Center bore CB',
+  coating_machined: 'Machined-area coating',
+  coating_total: 'Total coating thickness',
+  container_door: 'Container door (# legible)',
+  container_empty: 'Container empty + damage',
+  container_full: 'Container full',
+  container_half: 'Container half full',
+  container_seal: 'Seal # (legible)',
+  counter_bore: 'Counter bore',
+  ct_labels_doors: 'Box labels + hand-holes face doors',
+  ct_net: 'Net/rope before closing doors',
+  ct_no_loose: 'No loose wheels',
+  ct_photo_before: 'Container damage + empty photographed',
+  ct_spares_front: 'Spare boxes/caps at front',
+  hat_marks: 'No hat marks',
+  laser_format: 'Laser engraving format',
+  logo: 'Logo',
+  lug_hole: 'Lug hole',
+  mark_cb: 'Back marking — CB',
+  mark_et: 'Back marking — ET',
+  mark_nitra: 'Back marking — NITRA brand',
+  mark_pcd: 'Back marking — PCD',
+  mark_sae: 'Back marking — SAE J2530',
+  mark_size: 'Back marking — SIZE',
+  offset: 'Offset ET',
+  orange_peel: 'Smooth surface, no orange peel',
+  packing_inside: 'Packing layers inside box',
+  pallet_full: 'Each pallet w/ labels',
+  pk_bag: 'Step 4 — plastic bag',
+  pk_cap: 'Step 1 — cap on wheel',
+  pk_cloth: 'Step 2 — face cloth cover',
+  pk_foam: 'Foam/cling on gloss black',
+  pk_fullface: 'Full-face cap taped at box bottom',
+  pk_hoop: 'Step 3 — plastic hoop',
+  pk_sideboard: 'Side boards each side',
+  pk_toppad: 'Step 5 — protective top pad',
+  pl_grouped: 'Wheels stacked & grouped by part no.',
+  pl_height: 'Height ≤254 cm, 3-inch fork gap',
+  pl_label4: 'Pallet label on all 4 sides',
+  pl_photo: 'Photo of each pallet taken',
+  pl_straps: '4 straps tight',
+  pl_wood: 'Fumigation-free solid-wood pallet',
+  pl_wrap: 'Wrap ≥3 layers, ≥0.35 mm, tight',
+  radial_bot: 'Radial bottom',
+  radial_top: 'Radial top',
+  rear_bore_paint: 'Rear centre bore + mounting face paint-free',
+  required_shots: 'Required Photos',
+  seat_thick: 'Seat thickness',
+  tpms_hole: 'TPMS Inspection — dimension matches SKU',
+  wheel_back: 'Wheel back + markings',
+  wheel_front: 'Wheel front face',
+  wheel_weight: 'Wheel weight',
+}
+const labelOf = (key: unknown) => LABELS[String(key)] || String(key ?? '').replace(/_/g, ' ')
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders() })
@@ -80,7 +158,7 @@ Deno.serve(async (req) => {
         ? `<button class="media-icon" data-url="${esc(mediaUrl)}" data-type="${esc(p.media_type || 'photo')}">${icon}</button>`
         : '—'
       return `<tr>
-        <td>${esc(d.item_label || d.item_key || '—')}</td>
+        <td>${esc(d.item_label || labelOf(d.item_key) || '—')}</td>
         <td>${esc(pieceShort(d.piece_no))}</td>
         <td>${mediaButton}</td>
       </tr>`
@@ -93,15 +171,15 @@ Deno.serve(async (req) => {
       photosByParam.get(key)!.push(p)
     }
 
-    const labelFor = (p: any) => p.item_key || p.checklist_key || 'Required Photo'
+    const labelFor = (p: any) => labelOf(p.item_key || p.checklist_key || 'required_shots')
     const photoGroups = [...photosByParam.entries()].map(([key, list]) => {
       const sorted = [...list].sort((a: any, b: any) => {
-        const failSort = Number(a.is_pass_photo) - Number(b.is_pass_photo) // fail false first
-        if (failSort !== 0) return failSort
+        const passSort = Number(b.is_pass_photo) - Number(a.is_pass_photo) // pass photos first
+        if (passSort !== 0) return passSort
         return Number(a.piece_no || 0) - Number(b.piece_no || 0)
       })
       return `<section class="photo-group">
-        <h4>${esc(key.replace(/_/g, ' '))}</h4>
+        <h4>${esc(labelOf(key))}</h4>
         <div class="gallery">${sorted.map((p: any) => mediaCard(p, mediaUrls[p.storage_path], labelFor(p))).join('')}</div>
       </section>`
     }).join('')
