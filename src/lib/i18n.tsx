@@ -24,7 +24,7 @@ const STR = {
   tabTechnical:   { en: 'Technical',                  zh: '技术' },
   tabPhotos:      { en: 'Photos',                     zh: '照片' },
   tabPallet:      { en: 'Pallet',                     zh: '托盘' },
-  tabSummary:     { en: 'Summary',                    zh: '汇总' },
+  tabSummary:     { en: 'Inspection Report',           zh: '检验报告' },
   tab100pct:      { en: '⛔ 100% Check',              zh: '⛔ 全检' },
   piece:          { en: 'Piece',                      zh: '件号' },
   addDefect:      { en: 'Log Defect',                 zh: '记录缺陷' },

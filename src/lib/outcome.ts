@@ -60,13 +60,12 @@ export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string
     const baseFails = [...bV.fails, ...bT.fails]
     const ex = scanArr(extraV[key] || extraT[key])
     const h = scanHundred(hundred[key])
-    const checked = bV.checked + bT.checked + ex.checked + h.checked
+    const checked = bV.checked + bT.checked + h.checked
     const dedup = [...new Set([
       ...baseFails.map((n) => `#${n}`),
-      ...ex.failIdx.map((n) => `Extra ${n}`),
       ...h.fails.map((n) => `#${n}`),
     ])]
-    const fail = baseFails.length + ex.failIdx.length + h.fails.length
+    const fail = baseFails.length + h.fails.length
     let outcome: string
     if (h.checked > 0) outcome = '100% Inspection'
     else if (baseFails.length >= 2) outcome = '100% Inspection'
@@ -79,15 +78,15 @@ export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string
     .sort((a, b) => rank(a.outcome) - rank(b.outcome) || a.parameter.localeCompare(b.parameter))
 }
 
-export function summaryText(rows: OutcomeRow[]): string {
+export function summaryItems(rows: Array<{ parameter: string; outcome: string }>): string[] {
   const hundred = rows.filter((x) => x.outcome === '100% Inspection')
   const additional = rows.filter((x) => x.outcome.startsWith('Additional Inspection — Pass'))
-  const parts: string[] = []
-  if (hundred.length) parts.push(`${hundred.length} parameter${hundred.length > 1 ? 's' : ''} required 100% inspection: ${hundred.map((x) => x.parameter).join('; ')}.`)
-  if (additional.length) parts.push(`${additional.length} parameter${additional.length > 1 ? 's' : ''} passed after additional sampling: ${additional.map((x) => x.parameter).join('; ')}.`)
-  if (!hundred.length && !additional.length) parts.push('All inspected parameters passed on the initial sample.')
-  else parts.push('All other inspected parameters passed.')
-  return parts.join(' ')
+  const items: string[] = []
+  for (const r of hundred) items.push(`${r.parameter} — required 100% inspection`)
+  for (const r of additional) items.push(`${r.parameter} — passed after additional sampling`)
+  if (!hundred.length && !additional.length) items.push('All inspected parameters passed on the initial sample.')
+  else items.push('All other inspected parameters passed.')
+  return items
 }
 
 export const outcomeColor = (o: string) =>

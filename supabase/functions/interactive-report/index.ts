@@ -12,7 +12,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 const pieceLabel = (pieceNo: unknown) => {
   const n = Number(pieceNo)
   if (!Number.isFinite(n) || n === 0) return '—'
-  if (n < 0) return `Extra ${Math.abs(n)}`
+  if (n < 0) return 'Additional'
   return `Piece ${n}`
 }
 
@@ -213,14 +213,13 @@ Deno.serve(async (req) => {
       const baseFails = [...bV.fails, ...bT.fails]
       const ex = scanArr(extraV[key] || extraT[key])
       const h = scanHundred(hundred[key])
-      const checked = bV.checked + bT.checked + ex.checked + h.checked
+      const checked = bV.checked + bT.checked + h.checked
       const failList = [
         ...baseFails.map((n) => `#${n}`),
-        ...ex.failIdx.map((n) => `Extra ${n}`),
         ...h.fails.map((n) => `#${n}`),
       ]
       const dedup = [...new Set(failList)]
-      const fail = baseFails.length + ex.failIdx.length + h.fails.length
+      const fail = baseFails.length + h.fails.length
       let outcome: string
       if (h.checked > 0) outcome = '100% Inspection'
       else if (baseFails.length >= 2) outcome = '100% Inspection'

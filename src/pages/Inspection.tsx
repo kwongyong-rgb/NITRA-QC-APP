@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
-import { computeOutcomes, summaryText, outcomeColor } from '../lib/outcome'
+import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, MediaThumb } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
 import HundredPctCheck from '../components/HundredPctCheck'
@@ -267,6 +267,18 @@ export default function Inspection({ profile }: { profile: Profile }) {
     return (k: string) => m[k] || k.replace(/_/g,' ')
   }, [bi])
   const outcomeRows = useMemo(() => computeOutcomes(insp?.form_data, labelOf), [insp, labelOf])
+  const appendixGroups = useMemo(() => {
+    const map = new Map<string, typeof photos>()
+    for (const p of photos) {
+      const key = p.item_key || p.checklist_key || 'required_shots'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(p)
+    }
+    return [...map.entries()].map(([key, list]) => ({
+      label: labelOf(key),
+      photos: [...list].sort((a,b) => (Number(b.is_pass_photo)-Number(a.is_pass_photo)) || (a.piece_no - b.piece_no)),
+    }))
+  }, [photos, labelOf])
   const verdicts = useMemo(() => {
     if (!insp) return []
     return evaluateAll(insp.form_data, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, 4, 2)
@@ -723,7 +735,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
           <div style={{ height:14 }} />
 
           <h2 style={{ marginBottom:8, fontSize:18 }}>Summary</h2>
-          <p style={{ marginTop:0 }}>{summaryText(outcomeRows)}</p>
+          <ul style={{ marginTop:0, paddingLeft:20 }}>
+            {summaryItems(outcomeRows).map((s,i) => <li key={i} style={{ marginBottom:4 }}>{s}</li>)}
+          </ul>
           {triggeredItems.length>0 && <div className="banner bad">⛔ {t('fullInsp')}: {triggeredItems.map(v=>v.label).join(', ')}</div>}
 
           <h2 style={{ margin:'18px 0 8px', fontSize:18 }}>Inspection Outcome</h2>
@@ -736,8 +750,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
                     <tr key={i}>
                       <td>{o.parameter}</td>
                       <td>{o.checked}</td>
-                      <td>{o.pass}</td>
-                      <td>{o.fail}</td>
+                      <td style={{ fontWeight:700, color:'var(--pass)' }}>{o.pass}</td>
+                      <td style={{ fontWeight:700, color:o.fail>0?'var(--fail)':'var(--ink-soft)' }}>{o.fail}</td>
                       <td>{o.defectPieces}</td>
                       <td style={{ fontWeight:700, color:outcomeColor(o.outcome) }}>{o.outcome}</td>
                     </tr>
@@ -746,6 +760,32 @@ export default function Inspection({ profile }: { profile: Profile }) {
               </table>
             </div>
           ) : <p className="muted">No parameters inspected yet.</p>}
+
+          <h2 style={{ margin:'18px 0 8px', fontSize:18 }}>Photo / Video Appendix</h2>
+          {appendixGroups.length>0 ? appendixGroups.map((g,gi) => (
+            <div key={gi} style={{ marginTop: gi?14:0 }}>
+              <div style={{ fontWeight:700, color:'var(--navy)', marginBottom:6, textTransform:'capitalize' }}>{g.label}</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:10 }}>
+                {g.photos.map(p => {
+                  const u = photoUrls[p.storage_path]
+                  const pieceTxt = p.piece_no ? (p.piece_no<0?`Additional`:`Piece ${p.piece_no}`) : 'Required photo'
+                  return (
+                    <figure key={p.id} style={{ margin:0, border:'1px solid var(--line)', borderRadius:10, overflow:'hidden', background:'#fff' }}>
+                      <button onClick={() => { if(u) setModal({ type:'preview', url:u, mediaType:p.media_type }) }}
+                        style={{ width:'100%', height:96, border:0, background:'#EEF1F5', cursor:'pointer', padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        {p.media_type==='video' ? <span style={{ fontSize:28, color:'var(--navy)' }}>▶</span>
+                          : u ? <img src={u} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span className="muted" style={{ fontSize:12 }}>…</span>}
+                      </button>
+                      <figcaption style={{ fontSize:11, color:'var(--ink-soft)', padding:6 }}>
+                        <b style={{ color: p.is_pass_photo?'var(--pass)':'var(--fail)' }}>{p.is_pass_photo?'PASS':'FAIL'}</b> · {pieceTxt}
+                      </figcaption>
+                    </figure>
+                  )
+                })}
+              </div>
+            </div>
+          )) : <p className="muted">No photos or videos taken.</p>}
+
           <div style={{ height:14 }} />
           <label className="fld"><span>{t('disposition')} *</span>
             <select className="sel" disabled={!editable} value={insp.summary.disposition||''}

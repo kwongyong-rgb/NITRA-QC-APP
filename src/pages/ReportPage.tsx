@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { summaryItems } from '../lib/outcome'
 
 interface DefectRow {
   parameter: string
@@ -48,17 +49,6 @@ const DISPOSITION: Record<string, { text: string; cls: string }> = {
 }
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '—')
 const outcomeColor = (o: string) => (o === '100% Inspection' ? 'var(--fail)' : o.startsWith('Additional') ? 'var(--amber)' : 'var(--pass)')
-
-function buildSummary(d: ReportData): string {
-  const hundred = d.outcomes.filter(x => x.outcome === '100% Inspection')
-  const additional = d.outcomes.filter(x => x.outcome.startsWith('Additional Inspection — Pass'))
-  const parts: string[] = []
-  if (hundred.length) parts.push(`${hundred.length} parameter${hundred.length > 1 ? 's' : ''} required 100% inspection: ${hundred.map(x => x.parameter).join('; ')}.`)
-  if (additional.length) parts.push(`${additional.length} parameter${additional.length > 1 ? 's' : ''} passed after additional sampling: ${additional.map(x => x.parameter).join('; ')}.`)
-  if (!hundred.length && !additional.length) parts.push('All inspected parameters passed on the initial sample.')
-  else parts.push('All other inspected parameters passed.')
-  return parts.join(' ')
-}
 
 export default function ReportPage() {
   const { id } = useParams<{ id: string }>()
@@ -113,7 +103,9 @@ export default function ReportPage() {
 
         <section style={card}>
           <h2 style={h2}>Summary</h2>
-          <p style={{ marginTop: 0 }}>{buildSummary(data)}</p>
+          <ul style={{ marginTop: 0, paddingLeft: 20 }}>
+            {summaryItems(data.outcomes).map((s, i) => <li key={i} style={{ marginBottom: 4 }}>{s}</li>)}
+          </ul>
           {data.insp.remarks && <div style={{ background: '#F7F9FB', borderRadius: 8, padding: 12, marginTop: 4 }}><b>Inspector remarks</b><br />{data.insp.remarks}</div>}
         </section>
 
@@ -134,8 +126,8 @@ export default function ReportPage() {
                   <tr key={i}>
                     <Td>{o.parameter}</Td>
                     <Td>{o.checked}</Td>
-                    <Td>{o.pass}</Td>
-                    <Td>{o.fail}</Td>
+                    <td style={{ borderBottom: '1px solid #EEF1F5', padding: 8, fontSize: 13, fontWeight: 700, color: 'var(--pass)' }}>{o.pass}</td>
+                    <td style={{ borderBottom: '1px solid #EEF1F5', padding: 8, fontSize: 13, fontWeight: 700, color: o.fail > 0 ? 'var(--fail)' : 'var(--ink-soft)' }}>{o.fail}</td>
                     <Td>{o.defectPieces}</Td>
                     <td style={{ borderBottom: '1px solid #EEF1F5', padding: 8, fontSize: 13, fontWeight: 700, color: outcomeColor(o.outcome) }}>{o.outcome}</td>
                   </tr>
