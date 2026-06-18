@@ -46,8 +46,8 @@ Deno.serve(async (req) => {
     }
     const disposition = dispositionLabel[insp.summary?.disposition] || insp.summary?.disposition || '—'
     const isPass = disposition === 'RELEASE' || disposition === 'RELEASE WITH RECORD'
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!.replace(/\/$/, '')
-    const reportUrl = `${supabaseUrl}/functions/v1/interactive-report?id=${encodeURIComponent(inspection_id)}`
+    const appUrl = (Deno.env.get('PUBLIC_APP_URL') || 'https://nitra-qc-app.vercel.app').replace(/\/$/, '')
+    const reportUrl = `${appUrl}/report/${encodeURIComponent(inspection_id)}`
 
     const defectCount = (defects || []).length
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>

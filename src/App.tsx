@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useNavigate, Link } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { useI18n } from './lib/i18n'
 import Login from './pages/Login'
@@ -10,6 +10,7 @@ import Approvals from './pages/Approvals'
 import Settings from './pages/Settings'
 import Skus from './pages/Skus'
 import RefLibrary from './pages/RefLibrary'
+import ReportPage from './pages/ReportPage'
 import ErrorBoundary from './components/ErrorBoundary'
 
 export interface Profile { id: string; full_name: string; role: 'inspector' | 'approver' }
@@ -18,8 +19,13 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const { lang, setLang, t } = useI18n()
   const nav = useNavigate()
+  const location = useLocation()
+  // Recipients of an emailed report link are not logged-in NITRA staff, so this
+  // one route must never go through the login wall below.
+  const isPublicReport = location.pathname.startsWith('/report/')
 
   useEffect(() => {
+    if (isPublicReport) return
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { setProfile(null); return }
@@ -31,7 +37,17 @@ export default function App() {
       if (!s) setProfile(null); else load()
     })
     return () => sub.subscription.unsubscribe()
-  }, [])
+  }, [isPublicReport])
+
+  if (isPublicReport) {
+    return (
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/report/:id" element={<ReportPage />} />
+        </Routes>
+      </ErrorBoundary>
+    )
+  }
 
   if (profile === undefined) return <div className="page">…</div>
   if (profile === null) return <Login />
