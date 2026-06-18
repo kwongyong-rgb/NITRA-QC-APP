@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
+import { computeOutcomes, summaryText, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, MediaThumb } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
 import HundredPctCheck from '../components/HundredPctCheck'
@@ -257,6 +258,15 @@ export default function Inspection({ profile }: { profile: Profile }) {
   // Rule engine
   const allFormItems = useMemo(() => SECTIONS.flatMap(s => s.items.map(i => ({ key:i.key, label:bi(i.label), group:i.group }))), [bi])
   const allMeasItems = useMemo(() => MEAS_COLS.map(c => ({ key:c.key, label:bi(c.label) })), [bi])
+  const labelOf = useMemo(() => {
+    const m: Record<string,string> = {}
+    for (const s of SECTIONS) for (const it of s.items) m[it.key] = bi(it.label)
+    for (const c of MEAS_COLS) m[c.key] = bi(c.label)
+    for (const it of PALLET_ITEMS) m[it.key] = bi(it.label)
+    for (const sl of PHOTO_SLOTS) m[sl.key] = bi(sl.label)
+    return (k: string) => m[k] || k.replace(/_/g,' ')
+  }, [bi])
+  const outcomeRows = useMemo(() => computeOutcomes(insp?.form_data, labelOf), [insp, labelOf])
   const verdicts = useMemo(() => {
     if (!insp) return []
     return evaluateAll(insp.form_data, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, 4, 2)
@@ -706,49 +716,36 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {tab==='summary' && (
         <div className="card">
           <div className="row" style={{ alignItems:'center' }}>
-            <h2 style={{ flex:1, marginBottom:0 }}>{t('tabSummary')}</h2>
+            <h2 style={{ flex:1, marginBottom:0 }}>Inspection Report</h2>
             <button className="btn ghost" style={{ minHeight:40, padding:'6px 14px' }} onClick={() => openInspectionReport(insp.id, lang)}>{t('pdfReport')}</button>
             <button className="btn" style={{ minHeight:40, padding:'6px 14px' }} onClick={emailInteractiveReport}>Email Interactive Report</button>
           </div>
           <div style={{ height:14 }} />
-          <div className="row" style={{ marginBottom:14 }}>
-            <div className="card" style={{ flex:1, marginBottom:0, textAlign:'center' }}>
-              <div className="muted">{t('defectsLogged')}</div>
-              <div style={{ fontSize:32, fontFamily:'var(--display)', fontWeight:700, color:defects.length>0?'var(--fail)':'var(--pass)' }}>{defects.length}</div>
-            </div>
-            <div className="card" style={{ flex:1, marginBottom:0, textAlign:'center' }}>
-              <div className="muted">{t('photosTaken')}</div>
-              <div style={{ fontSize:32, fontFamily:'var(--display)', fontWeight:700, color:'var(--navy)' }}>{photos.length}</div>
-            </div>
-          </div>
+
+          <h2 style={{ marginBottom:8, fontSize:18 }}>Summary</h2>
+          <p style={{ marginTop:0 }}>{summaryText(outcomeRows)}</p>
           {triggeredItems.length>0 && <div className="banner bad">⛔ {t('fullInsp')}: {triggeredItems.map(v=>v.label).join(', ')}</div>}
-          {defects.length>0 && (
-            <><h2 style={{ marginBottom:10 }}>Defect Log</h2>
+
+          <h2 style={{ margin:'18px 0 8px', fontSize:18 }}>Inspection Outcome</h2>
+          {outcomeRows.length>0 ? (
             <div style={{ overflowX:'auto' }}>
               <table className="tbl">
-                <thead><tr><th>{t('piece')}</th><th>{t('inspParam')}</th><th>Type</th><th>{t('severity')}</th><th>Value</th><th>Media</th></tr></thead>
+                <thead><tr><th>{t('inspParam')}</th><th>Checked</th><th>Pass</th><th>Fail</th><th>Defect Pieces</th><th>Outcome</th></tr></thead>
                 <tbody>
-                  {defects.map(d => {
-                    const dPhotos = photos.filter(p => p.defect_id===d.id)
-                    return (
-                      <tr key={d.id}>
-                        <td>{d.tab==='extra'?`+${-d.piece_no}`:d.tab==='100pct'?`${d.piece_no}(100%)`:d.piece_no||'—'}</td>
-                        <td>{d.item_label||d.item_key}</td>
-                        <td>{d.defect_type?.replace(/_/g,' ')}</td>
-                        <td><span className={`pill ${d.severity==='critical'?'rejected':d.severity==='major'?'submitted':'draft'}`}>{d.severity}</span></td>
-                        <td>{d.measurement_value!==null?`${d.measurement_value} ${d.measurement_unit}`:'—'}</td>
-                        <td>{dPhotos.length>0
-                          ? <button className="btn ghost" style={{ minHeight:34, padding:'4px 10px', fontSize:13 }}
-                              onClick={() => { const p=dPhotos[0]; const u=photoUrls[p.storage_path]; if(u) setModal({ type:'preview', url:u, mediaType:p.media_type }) }}>
-                              {dPhotos[0].media_type==='video'?'🎥':'📷'} {dPhotos.length}</button>
-                          : <span className="muted">—</span>}</td>
-                      </tr>
-                    )
-                  })}
+                  {outcomeRows.map((o,i) => (
+                    <tr key={i}>
+                      <td>{o.parameter}</td>
+                      <td>{o.checked}</td>
+                      <td>{o.pass}</td>
+                      <td>{o.fail}</td>
+                      <td>{o.defectPieces}</td>
+                      <td style={{ fontWeight:700, color:outcomeColor(o.outcome) }}>{o.outcome}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-            </div></>
-          )}
+            </div>
+          ) : <p className="muted">No parameters inspected yet.</p>}
           <div style={{ height:14 }} />
           <label className="fld"><span>{t('disposition')} *</span>
             <select className="sel" disabled={!editable} value={insp.summary.disposition||''}
