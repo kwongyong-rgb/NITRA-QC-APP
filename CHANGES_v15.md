@@ -1,25 +1,28 @@
-# CHANGES v15 — Interactive Report Formatting
+# NITRA QC App — v15 (report content/formatting changes)
 
-Updated the interactive report formatting:
+Changed: src/pages/ReportPage.tsx + supabase/functions/interactive-report/index.ts
 
-- Renamed the main report header from "Inspection Summary" to "Inspection Report".
-- Renamed the remarks area to "Summary".
-- Added automatic inspection summary wording based on report outcomes:
-  - lists parameters requiring 100% inspection
-  - lists parameters requiring pending additional inspection
-  - lists parameters where additional inspection passed
-  - states no additional/100% inspection was required when clean
-- Replaced the old interactive Defect Log table with an "Inspection Outcome" table.
-- Added outcome columns:
-  - Inspected Parameter
-  - Checked (wheels inspected)
-  - Pass
-  - Fail
-  - Defect Pieces
-  - Outcome
-  - Photo / Video
-- Defect pieces now display as #1, #2 instead of Piece 1, Piece 2.
-- Supabase interactive-report function now returns outcomes and summaryText for the Vercel report page.
-- Updated browser print/PDF report wording to use "Summary" and clarified the Checked header.
+1. "Inspection Summary" header  →  "Inspection Report"
+2. "Remarks"  →  new "Summary" card containing an AUTO-GENERATED outcome
+   narrative (e.g. "1 parameter required 100% inspection: Area D — Rim horn
+   inside. All other inspected parameters passed."), with the inspector's
+   typed remarks shown below it if present.
+3. "Defect Log"  →  "Inspection Outcome", rebuilt as a per-parameter table:
+   Inspected Parameter | Checked | Pass | Fail | Defect Pieces | Outcome
+   - Checked = how many wheels were inspected for that parameter
+   - Defect Pieces = the piece numbers that failed (e.g. #3, Extra 1)
+   - Outcome = Pass / Additional Inspection — Pass / 100% Inspection
+     (colour-coded green / amber / red)
+   Computed from form_data (results, extra_results, meas_*, hundred_pct) via
+   the rule engine — NOT from the raw defects table, so the duplicate
+   "(100% check)" rows do not appear.
 
-Build verified with npm run build.
+## Deploy
+- Vercel: replace files, commit, push (ReportPage changed).
+- Supabase: redeploy ONLY interactive-report (its data output changed):
+    supabase functions deploy interactive-report --project-ref nzzktgstpifevaqyapyw --no-verify-jwt
+  send-report did NOT change this round — no need to redeploy it.
+
+## Verified
+- Front-end strict type check: 0 errors.
+- interactive-report transpiles clean.

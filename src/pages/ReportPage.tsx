@@ -7,14 +7,6 @@ interface DefectRow {
   mediaUrl: string | null
   mediaType: string | null
 }
-interface OutcomeRow {
-  parameter: string
-  checked: number
-  pass: number
-  fail: number
-  defectPieces: string
-  outcome: string
-}
 interface PhotoItem {
   isPass: boolean
   pieceLabel: string
@@ -23,6 +15,14 @@ interface PhotoItem {
   comment: string
 }
 interface PhotoGroup { label: string; photos: PhotoItem[] }
+interface OutcomeRow {
+  parameter: string
+  checked: number
+  pass: number
+  fail: number
+  defectPieces: string
+  outcome: string
+}
 interface ReportData {
   ok: boolean
   error?: string
@@ -35,10 +35,9 @@ interface ReportData {
   sku: { model: string; size: string; pcd: string; offset_txt: string; cb_mm: number | null; finish: string } | null
   inspectorName: string
   reviewerName: string
-  summaryText: string
-  outcomes: OutcomeRow[]
   defects: DefectRow[]
   photoGroups: PhotoGroup[]
+  outcomes: OutcomeRow[]
 }
 
 const DISPOSITION: Record<string, { text: string; cls: string }> = {
@@ -48,6 +47,18 @@ const DISPOSITION: Record<string, { text: string; cls: string }> = {
   reject: { text: 'REJECT', cls: 'fail' },
 }
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '—')
+const outcomeColor = (o: string) => (o === '100% Inspection' ? 'var(--fail)' : o.startsWith('Additional') ? 'var(--amber)' : 'var(--pass)')
+
+function buildSummary(d: ReportData): string {
+  const hundred = d.outcomes.filter(x => x.outcome === '100% Inspection')
+  const additional = d.outcomes.filter(x => x.outcome.startsWith('Additional Inspection — Pass'))
+  const parts: string[] = []
+  if (hundred.length) parts.push(`${hundred.length} parameter${hundred.length > 1 ? 's' : ''} required 100% inspection: ${hundred.map(x => x.parameter).join('; ')}.`)
+  if (additional.length) parts.push(`${additional.length} parameter${additional.length > 1 ? 's' : ''} passed after additional sampling: ${additional.map(x => x.parameter).join('; ')}.`)
+  if (!hundred.length && !additional.length) parts.push('All inspected parameters passed on the initial sample.')
+  else parts.push('All other inspected parameters passed.')
+  return parts.join(' ')
+}
 
 export default function ReportPage() {
   const { id } = useParams<{ id: string }>()
@@ -98,7 +109,12 @@ export default function ReportPage() {
               <tr><Td k>Approved By</Td><Td>{data.reviewerName}</Td><Td k>Approved On</Td><Td>{fmt(data.insp.reviewed_at)}</Td></tr>
             </tbody>
           </table>
-          <div style={{ background: '#F7F9FB', borderRadius: 8, padding: 12, marginTop: 12 }}><b>Summary</b><br />{data.summaryText || 'Inspection completed.'}</div>
+        </section>
+
+        <section style={card}>
+          <h2 style={h2}>Summary</h2>
+          <p style={{ marginTop: 0 }}>{buildSummary(data)}</p>
+          {data.insp.remarks && <div style={{ background: '#F7F9FB', borderRadius: 8, padding: 12, marginTop: 4 }}><b>Inspector remarks</b><br />{data.insp.remarks}</div>}
         </section>
 
         <section style={card}>
@@ -110,29 +126,23 @@ export default function ReportPage() {
 
         <section style={card}>
           <h2 style={h2}>Inspection Outcome</h2>
-          {data.outcomes?.length ? (
+          {data.outcomes.length ? (
             <table style={gridTable}>
-              <thead><tr><Th>Inspected Parameter</Th><Th>Checked<br /><small>Wheels inspected</small></Th><Th>Pass</Th><Th>Fail</Th><Th>Defect Pieces</Th><Th>Outcome</Th><Th>Photo / Video</Th></tr></thead>
+              <thead><tr><Th>Inspected Parameter</Th><Th>Checked</Th><Th>Pass</Th><Th>Fail</Th><Th>Defect Pieces</Th><Th>Outcome</Th></tr></thead>
               <tbody>
-                {data.outcomes.map((o, i) => {
-                  const media = data.defects.find(d => d.parameter === o.parameter && d.mediaUrl)
-                  return <tr key={i}>
+                {data.outcomes.map((o, i) => (
+                  <tr key={i}>
                     <Td>{o.parameter}</Td>
                     <Td>{o.checked}</Td>
-                    <Td><span style={{ color: 'var(--pass)', fontWeight: 800 }}>{o.pass}</span></Td>
-                    <Td><span style={{ color: 'var(--fail)', fontWeight: 800 }}>{o.fail}</span></Td>
+                    <Td>{o.pass}</Td>
+                    <Td>{o.fail}</Td>
                     <Td>{o.defectPieces}</Td>
-                    <Td>{o.outcome}</Td>
-                    <Td>{media?.mediaUrl ? (
-                      <button style={mediaBtn} onClick={() => setLightbox({ url: media.mediaUrl!, type: media.mediaType || 'photo' })}>
-                        {media.mediaType === 'video' ? '🎥' : '📷'}
-                      </button>
-                    ) : '—'}</Td>
+                    <td style={{ borderBottom: '1px solid #EEF1F5', padding: 8, fontSize: 13, fontWeight: 700, color: outcomeColor(o.outcome) }}>{o.outcome}</td>
                   </tr>
-                })}
+                ))}
               </tbody>
             </table>
-          ) : <p style={{ color: 'var(--pass)', fontWeight: 700 }}>No inspection outcomes recorded.</p>}
+          ) : <p style={{ color: 'var(--ink-soft)' }}>No parameters inspected.</p>}
         </section>
 
         <section style={card}>
@@ -183,7 +193,6 @@ const card: React.CSSProperties = { background: '#fff', border: '1px solid var(-
 const h2: React.CSSProperties = { margin: '0 0 12px', color: 'var(--navy)', fontSize: 18 }
 const metaTable: React.CSSProperties = { width: '100%', borderCollapse: 'collapse' }
 const gridTable: React.CSSProperties = { width: '100%', borderCollapse: 'collapse' }
-const mediaBtn: React.CSSProperties = { border: '1px solid var(--line)', background: '#fff', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 18 }
 
 function Td({ children, k }: { children: React.ReactNode; k?: boolean }) {
   return <td style={{ borderBottom: '1px solid #EEF1F5', padding: 8, color: k ? 'var(--ink-soft)' : 'var(--ink)', fontSize: k ? 12 : 13, fontWeight: k ? 400 : 700 }}>{children}</td>
