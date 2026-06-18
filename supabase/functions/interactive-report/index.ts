@@ -94,6 +94,109 @@ const LABELS: Record<string, string> = {
 }
 const labelOf = (key: unknown) => LABELS[String(key)] || String(key ?? '').replace(/_/g, ' ')
 
+const TECH_KEYS = new Set([
+  'counter_bore','lug_hole','seat_thick','offset','cb','wheel_weight','barrel_tol','barrel_tolerance',
+  'radial_top','radial_bot','axial_top','axial_bot','head','bal_b','bal_c','bal_bc'
+])
+const resultKey = (raw: string) => raw.includes(':') ? raw.split(':')[0] : raw
+const resultPiece = (raw: string) => {
+  const n = Number(raw.includes(':') ? raw.split(':')[1] : raw)
+  return Number.isFinite(n) ? n : 0
+}
+const pieceHash = (pieceNo: unknown) => {
+  const n = Number(pieceNo)
+  if (!Number.isFinite(n) || n === 0) return '—'
+  if (n < 0) return `#E${Math.abs(n)}`
+  return `#${n}`
+}
+const isDone = (r: unknown) => r === 'P' || r === 'F' || r === 'NA'
+const isPF = (r: unknown) => r === 'P' || r === 'F'
+
+function buildOutcomes(insp: any, defects: any[]) {
+  const fd = insp.form_data || {}
+  const results = fd.results || {}
+  const measResults = fd.meas_results || {}
+  const extraResults = fd.extra_results || {}
+  const measExtraResults = fd.meas_extra_results || {}
+  const hundred = fd.hundred_pct || {}
+
+  const keys = new Set<string>()
+  for (const k of Object.keys(results)) keys.add(resultKey(k))
+  for (const k of Object.keys(measResults)) keys.add(resultKey(k))
+  for (const k of Object.keys(extraResults)) keys.add(k)
+  for (const k of Object.keys(measExtraResults)) keys.add(k)
+  for (const k of Object.keys(hundred)) keys.add(k)
+  for (const d of defects) if (d.item_key) keys.add(String(d.item_key))
+
+  const rows = [...keys].map(key => {
+    const technical = TECH_KEYS.has(key)
+    const baseMap = technical ? measResults : results
+    const extrasMap = technical ? measExtraResults : extraResults
+    const sample = technical ? Number(insp.fun_sample || 4) : Number(insp.app_sample || 8)
+    const extraRequired = technical ? 2 : 4
+
+    const baseEntries = Object.entries(baseMap).filter(([k]) => resultKey(k) === key)
+    const baseDone = baseEntries.filter(([, r]) => isDone(r))
+    const basePass = baseEntries.filter(([, r]) => r === 'P' || r === 'NA')
+    const baseFail = baseEntries.filter(([, r]) => r === 'F')
+    const extras = Array.isArray(extrasMap[key]) ? extrasMap[key] : []
+    const extraDone = extras.filter(isPF)
+    const extraPass = extras.filter(r => r === 'P')
+    const extraFail = extras.filter(r => r === 'F')
+    const hMap = hundred[key] || {}
+    const hEntries = Object.entries(hMap).filter(([, r]) => r === 'P' || r === 'F')
+
+    let checked = 0, pass = 0, fail = 0
+    if (hEntries.length) {
+      checked = hEntries.length
+      pass = hEntries.filter(([, r]) => r === 'P').length
+      fail = hEntries.filter(([, r]) => r === 'F').length
+    } else {
+      checked = baseDone.length + extraDone.length
+      pass = basePass.length + extraPass.length
+      fail = baseFail.length + extraFail.length
+    }
+
+    const defectPieces = [...new Set(defects
+      .filter((d: any) => String(d.item_key || '') === key && Number(d.piece_no || 0) > 0)
+      .map((d: any) => Number(d.piece_no))
+      .sort((a: number, b: number) => a - b)
+      .map(pieceHash))]
+    if (!defectPieces.length) {
+      for (const [rk, r] of baseEntries) if (r === 'F') defectPieces.push(pieceHash(resultPiece(rk)))
+      if (hEntries.length) for (const [pc, r] of hEntries) if (r === 'F') defectPieces.push(pieceHash(pc))
+    }
+
+    let outcome = 'Pass'
+    if (hEntries.length || baseFail.length >= 2 || extraFail.length > 0) outcome = '100% Inspection'
+    else if (baseFail.length === 1 && extraDone.length >= extraRequired) outcome = 'Additional Inspection + Pass'
+    else if (baseFail.length === 1) outcome = 'Additional Inspection Pending'
+
+    return {
+      parameter: labelOf(key), key, checked, pass, fail,
+      defectPieces: [...new Set(defectPieces)].join(', ') || '—',
+      outcome,
+      sortStatus: outcome === '100% Inspection' ? 0 : outcome.includes('Additional') ? 1 : 2,
+    }
+  }).filter(r => r.checked > 0 || r.fail > 0 || r.defectPieces !== '—')
+
+  rows.sort((a, b) => a.sortStatus - b.sortStatus || String(a.parameter).localeCompare(String(b.parameter)))
+  return rows
+}
+
+function buildSummary(insp: any, outcomeRows: any[]) {
+  const full = outcomeRows.filter(r => r.outcome === '100% Inspection')
+  const addPass = outcomeRows.filter(r => r.outcome === 'Additional Inspection + Pass')
+  const pending = outcomeRows.filter(r => r.outcome === 'Additional Inspection Pending')
+  const parts: string[] = []
+  if (full.length) parts.push(`100% inspection was required for: ${full.map(r => r.parameter).join(', ')}.`)
+  if (pending.length) parts.push(`Additional inspection is pending for: ${pending.map(r => r.parameter).join(', ')}.`)
+  if (addPass.length) parts.push(`Additional inspection was completed and passed for: ${addPass.map(r => r.parameter).join(', ')}.`)
+  if (!parts.length) parts.push('Inspection completed with no additional or 100% inspection required.')
+  const remarks = insp.summary?.remarks ? ` Remarks: ${insp.summary.remarks}` : ''
+  return parts.join(' ') + remarks
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders() })
 
@@ -143,7 +246,7 @@ Deno.serve(async (req) => {
       const p = firstPhotoForDefect(d)
       return {
         parameter: d.item_label || labelOf(d.item_key) || '—',
-        pieceLabel: pieceLabel(d.piece_no),
+        pieceLabel: pieceHash(d.piece_no),
         mediaUrl: p ? mediaUrls[p.storage_path] || null : null,
         mediaType: p?.media_type || null,
       }
@@ -157,7 +260,7 @@ Deno.serve(async (req) => {
     }
     const photoGroups = [...photosByParam.entries()].map(([key, list]) => {
       const sorted = [...list].sort((a: any, b: any) => {
-        const passSort = Number(b.is_pass_photo) - Number(a.is_pass_photo) // pass photos first
+        const passSort = Number(a.is_pass_photo) - Number(b.is_pass_photo) // fail photos first
         if (passSort !== 0) return passSort
         return Number(a.piece_no || 0) - Number(b.piece_no || 0)
       })
@@ -172,6 +275,9 @@ Deno.serve(async (req) => {
         })),
       }
     })
+
+    const outcomeRows = buildOutcomes(insp, defects)
+    const summaryText = buildSummary(insp, outcomeRows)
 
     return json({
       ok: true,
@@ -190,6 +296,8 @@ Deno.serve(async (req) => {
       sku: sku ? { model: sku.model, size: sku.size, pcd: sku.pcd, offset_txt: sku.offset_txt, cb_mm: sku.cb_mm, finish: sku.finish } : null,
       inspectorName: names[insp.inspector_id] || '—',
       reviewerName: insp.reviewed_by ? (names[insp.reviewed_by] || '—') : '—',
+      summaryText,
+      outcomes: outcomeRows,
       defects: defectRows,
       photoGroups,
     })

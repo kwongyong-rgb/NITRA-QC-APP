@@ -7,6 +7,14 @@ interface DefectRow {
   mediaUrl: string | null
   mediaType: string | null
 }
+interface OutcomeRow {
+  parameter: string
+  checked: number
+  pass: number
+  fail: number
+  defectPieces: string
+  outcome: string
+}
 interface PhotoItem {
   isPass: boolean
   pieceLabel: string
@@ -27,6 +35,8 @@ interface ReportData {
   sku: { model: string; size: string; pcd: string; offset_txt: string; cb_mm: number | null; finish: string } | null
   inspectorName: string
   reviewerName: string
+  summaryText: string
+  outcomes: OutcomeRow[]
   defects: DefectRow[]
   photoGroups: PhotoGroup[]
 }
@@ -77,7 +87,7 @@ export default function ReportPage() {
 
       <main style={{ maxWidth: 1100, margin: '22px auto', padding: '0 14px' }}>
         <section style={card}>
-          <h2 style={h2}>Inspection Summary</h2>
+          <h2 style={h2}>Inspection Report</h2>
           <table style={metaTable}>
             <tbody>
               <tr><Td k>Part No. / SKU</Td><Td>{data.insp.part_no}</Td><Td k>Finish</Td><Td>{data.sku?.finish || '—'}</Td></tr>
@@ -88,7 +98,7 @@ export default function ReportPage() {
               <tr><Td k>Approved By</Td><Td>{data.reviewerName}</Td><Td k>Approved On</Td><Td>{fmt(data.insp.reviewed_at)}</Td></tr>
             </tbody>
           </table>
-          {data.insp.remarks && <div style={{ background: '#F7F9FB', borderRadius: 8, padding: 12, marginTop: 12 }}><b>Remarks</b><br />{data.insp.remarks}</div>}
+          <div style={{ background: '#F7F9FB', borderRadius: 8, padding: 12, marginTop: 12 }}><b>Summary</b><br />{data.summaryText || 'Inspection completed.'}</div>
         </section>
 
         <section style={card}>
@@ -99,24 +109,30 @@ export default function ReportPage() {
         </section>
 
         <section style={card}>
-          <h2 style={h2}>Defect Log</h2>
-          {data.defects.length ? (
+          <h2 style={h2}>Inspection Outcome</h2>
+          {data.outcomes?.length ? (
             <table style={gridTable}>
-              <thead><tr><Th>Inspected Parameter</Th><Th>Piece #</Th><Th>Photo / Video</Th></tr></thead>
+              <thead><tr><Th>Inspected Parameter</Th><Th>Checked<br /><small>Wheels inspected</small></Th><Th>Pass</Th><Th>Fail</Th><Th>Defect Pieces</Th><Th>Outcome</Th><Th>Photo / Video</Th></tr></thead>
               <tbody>
-                {data.defects.map((d, i) => (
-                  <tr key={i}>
-                    <Td>{d.parameter}</Td><Td>{d.pieceLabel}</Td>
-                    <Td>{d.mediaUrl ? (
-                      <button style={mediaBtn} onClick={() => setLightbox({ url: d.mediaUrl!, type: d.mediaType || 'photo' })}>
-                        {d.mediaType === 'video' ? '🎥' : '📷'}
+                {data.outcomes.map((o, i) => {
+                  const media = data.defects.find(d => d.parameter === o.parameter && d.mediaUrl)
+                  return <tr key={i}>
+                    <Td>{o.parameter}</Td>
+                    <Td>{o.checked}</Td>
+                    <Td><span style={{ color: 'var(--pass)', fontWeight: 800 }}>{o.pass}</span></Td>
+                    <Td><span style={{ color: 'var(--fail)', fontWeight: 800 }}>{o.fail}</span></Td>
+                    <Td>{o.defectPieces}</Td>
+                    <Td>{o.outcome}</Td>
+                    <Td>{media?.mediaUrl ? (
+                      <button style={mediaBtn} onClick={() => setLightbox({ url: media.mediaUrl!, type: media.mediaType || 'photo' })}>
+                        {media.mediaType === 'video' ? '🎥' : '📷'}
                       </button>
                     ) : '—'}</Td>
                   </tr>
-                ))}
+                })}
               </tbody>
             </table>
-          ) : <p style={{ color: 'var(--pass)', fontWeight: 700 }}>No defects logged.</p>}
+          ) : <p style={{ color: 'var(--pass)', fontWeight: 700 }}>No inspection outcomes recorded.</p>}
         </section>
 
         <section style={card}>
