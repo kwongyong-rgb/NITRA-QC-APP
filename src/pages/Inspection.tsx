@@ -54,11 +54,12 @@ type ModalState =
 
 const TABS = ['form','measure','photos','pallet','summary','100pct'] as const
 
-const CORRECTIVE_TEMPLATES = [
-  { label: '100% inspection + rework', text: 'Factory to conduct 100% inspection and rework all affected pieces, then re-submit for QC re-inspection before loading.' },
-  { label: 'Exclude failed pieces', text: 'Failed pieces to be segregated and excluded from loading. Only pieces passing 100% inspection may be shipped.' },
-  { label: 'Customer approval', text: 'Findings to be communicated to the customer; shipment pending customer acceptance of the noted defects.' },
-  { label: 'Acceptable — load', text: 'Findings are within acceptable limits. Container approved for loading.' },
+const CORRECTIVE_TEMPLATES: { label: string; text: (f: string) => string }[] = [
+  { label: 'Rework failed param + load', text: f => `Factory to rework wheels with failed parameter(s): ${f} (100% inspection conducted), and load after rework.` },
+  { label: '100% inspect + rework + reinspect', text: f => `Factory to conduct 100% inspection and rework all wheels affected by: ${f}, then re-submit for QC re-inspection before loading.` },
+  { label: 'Exclude failed pieces', text: f => `Wheels with failed parameter(s): ${f} to be segregated and excluded from loading. Only pieces passing 100% inspection may be shipped.` },
+  { label: 'Pending customer', text: f => `Findings for: ${f} to be communicated to the customer; shipment pending customer acceptance of the noted defects.` },
+  { label: 'Acceptable — load', text: () => `Findings are within acceptable limits. Container approved for loading.` },
 ]
 
 const SLOT_SUGGEST: Record<string,string[]> = {
@@ -274,6 +275,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
     return (k: string) => m[k] || k.replace(/_/g,' ')
   }, [bi])
   const outcomeRows = useMemo(() => computeOutcomes(insp?.form_data, labelOf), [insp, labelOf])
+  const failedParamStr = useMemo(() => {
+    const f = outcomeRows.filter(r => r.fail > 0).map(r => r.parameter)
+    return f.length ? f.join(', ') : 'the affected parameter(s)'
+  }, [outcomeRows])
   const appendixGroups = useMemo(() => {
     const map = new Map<string, typeof photos>()
     for (const p of photos) {
@@ -751,6 +756,25 @@ export default function Inspection({ profile }: { profile: Profile }) {
           </ul>
           {triggeredItems.length>0 && <div className="banner bad">⛔ {t('fullInsp')}: {triggeredItems.map(v=>v.label).join(', ')}</div>}
 
+          <label className="fld" style={{ marginTop:14 }}><span>{t('correctiveAction')}</span>
+            <textarea className="txt" rows={4} disabled={!editable} value={insp.summary.corrective_action||''}
+              onChange={async e => { const s={...insp.summary,corrective_action:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }} />
+          </label>
+          {editable && (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
+              <span className="muted" style={{ fontSize:12, alignSelf:'center', marginRight:2 }}>{t('insertTemplate')}:</span>
+              {CORRECTIVE_TEMPLATES.map((tpl,i) => (
+                <button key={i} className="btn ghost" style={{ minHeight:34, padding:'4px 10px', fontSize:12 }}
+                  onClick={async () => {
+                    const line=tpl.text(failedParamStr)
+                    const cur=insp.summary.corrective_action||''
+                    const s={...insp.summary, corrective_action: cur ? `${cur}\n${line}` : line}
+                    setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id)
+                  }}>{tpl.label}</button>
+              ))}
+            </div>
+          )}
+
           <h2 style={{ margin:'18px 0 8px', fontSize:18 }}>Inspection Outcome</h2>
           {outcomeRows.length>0 ? (
             <div style={{ overflowX:'auto' }}>
@@ -808,24 +832,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
               <option value="pending_customer">{t('dispPendingCustomer')}</option>
             </select>
           </label>
-          <div style={{ height:10 }} />
-          <label className="fld"><span>{t('correctiveAction')}</span>
-            <textarea className="txt" rows={4} disabled={!editable} value={insp.summary.corrective_action||''}
-              onChange={async e => { const s={...insp.summary,corrective_action:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }} />
-          </label>
-          {editable && (
-            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
-              <span className="muted" style={{ fontSize:12, alignSelf:'center', marginRight:2 }}>{t('insertTemplate')}:</span>
-              {CORRECTIVE_TEMPLATES.map((tpl,i) => (
-                <button key={i} className="btn ghost" style={{ minHeight:34, padding:'4px 10px', fontSize:12 }}
-                  onClick={async () => {
-                    const cur=insp.summary.corrective_action||''
-                    const s={...insp.summary, corrective_action: cur ? `${cur}\n${tpl.text}` : tpl.text}
-                    setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id)
-                  }}>{tpl.label}</button>
-              ))}
-            </div>
-          )}
           {editable && <button className="btn" style={{ width:'100%', marginTop:16 }} onClick={submit}>{t('submit')}</button>}
         </div>
       )}
