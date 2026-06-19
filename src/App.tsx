@@ -17,6 +17,7 @@ export interface Profile { id: string; full_name: string; role: 'inspector' | 'a
 
 export default function App() {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
+  const [menuOpen, setMenuOpen] = useState(false)
   const { lang, setLang, t } = useI18n()
   const nav = useNavigate()
   const location = useLocation()
@@ -57,16 +58,19 @@ export default function App() {
       <header className="topbar">
         <Link to="/"><img src="/logo-white.png" alt="NITRA" /></Link>
         <span className="title">{t('appTitle')}</span>
-        {profile.role === 'approver' && (
-          <>
-            <Link to="/approvals"><button>{t('approvals')}</button></Link>
-            <Link to="/skus"><button>{t('skus')}</button></Link>
-            <Link to="/settings"><button>{t('settings')}</button></Link>
-          </>
-        )}
-        <Link to="/reference"><button>{t('refLibrary')}</button></Link>
-        <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '中文' : 'EN'}</button>
-        <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>{t('signOut')}</button>
+        <button className="topbar-burger" aria-label="Menu" onClick={() => setMenuOpen(o => !o)}>☰</button>
+        <nav className={menuOpen ? 'topbar-nav open' : 'topbar-nav'} onClick={() => setMenuOpen(false)}>
+          {profile.role === 'approver' && (
+            <>
+              <Link to="/approvals"><button>{t('approvals')}</button></Link>
+              <Link to="/skus"><button>{t('skus')}</button></Link>
+              <Link to="/settings"><button>{t('settings')}</button></Link>
+            </>
+          )}
+          <Link to="/reference"><button>{t('refLibrary')}</button></Link>
+          <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '中文' : 'EN'}</button>
+          <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>{t('signOut')}</button>
+        </nav>
       </header>
       <ErrorBoundary>
         <Routes>

@@ -477,12 +477,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
       {/* Tabs */}
       <div className="tabs">
-        {TABS.filter(k => k!=='100pct'||triggeredItems.length>0).map(k => (
-          <button key={k} className={tab===k?'on':''} onClick={() => setTab(k)}
-            style={k==='100pct'?{ background:'var(--fail)', color:'#fff', borderColor:'var(--fail)' }:{}}>
-            {k==='form'?t('tabVisual'):k==='measure'?t('tabTechnical'):k==='photos'?`📷 ${t('tabPhotos')} (${photos.length})`:k==='pallet'?t('tabPallet'):k==='100pct'?t('tab100pct'):t('tabSummary')}
-          </button>
-        ))}
+        {TABS.filter(k => k!=='100pct'||triggeredItems.length>0).map(k => {
+          const label = k==='form'?t('tabVisual'):k==='measure'?t('tabTechnical'):k==='photos'?`${t('tabPhotos')} (${photos.length})`:k==='pallet'?t('tabPallet'):k==='100pct'?t('tab100pct'):t('tabSummary')
+          const icon = k==='form'?'👁':k==='measure'?'📏':k==='photos'?'📷':k==='pallet'?'📦':k==='100pct'?'⛔':'📋'
+          return (
+            <button key={k} className={`${tab===k?'on':''}${k==='100pct'?' crit':''}`} onClick={() => setTab(k)}>
+              <span className="tab-ico" aria-hidden="true">{icon}</span>
+              <span className="tab-txt">{label}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* ── VISUAL TAB ── */}
