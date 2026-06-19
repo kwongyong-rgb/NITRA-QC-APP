@@ -27,7 +27,7 @@ export const SECTIONS: Section[] = [
       { key: 'area_c1', group: 'A', label: { en: 'Area C1 — Rim well inside', zh: 'C1区 — 轮辋内侧' }, standard: { en: 'Paint 3×≤1.0mm · porosity 2×≤1.0mm · scratch 1×≤5mm · dist 100mm', zh: '漆点3×≤1.0mm · 砂孔2×≤1.0mm · 划痕1×≤5mm · 间距100mm' } },
       { key: 'area_d', group: 'A', label: { en: 'Area D — Rim horn inside', zh: 'D区 — 轮缘内侧' }, standard: { en: 'Paint 3×≤1.0mm · porosity 3×≤1.0mm · scratch 5×≤5mm · dist 100mm', zh: '漆点3×≤1.0mm · 砂孔3×≤1.0mm · 划痕5×≤5mm · 间距100mm' } },
       { key: 'area_e', group: 'A', label: { en: 'Area E — Valve hole', zh: 'E区 — 气门孔' }, standard: { en: 'Free of burrs', zh: '无毛刺' } },
-      { key: 'tpms_hole', group: 'A', label: { en: 'TPMS Inspection — dimension matches SKU', zh: 'TPMS检验 — 尺寸与SKU一致' }, standard: { en: 'Confirm TPMS dimensions match the SKU spec shown below', zh: '确认TPMS尺寸与下方SKU规格一致' } },
+      { key: 'tpms_hole', group: 'A', label: { en: 'TPMS Dimension', zh: 'TPMS 尺寸' }, standard: { en: 'Confirm TPMS dimensions match the SKU spec shown below', zh: '确认TPMS尺寸与下方SKU规格一致' } },
       { key: 'hat_marks', group: 'A', label: { en: 'No hat marks', zh: '无压痕' }, standard: { en: 'Wheel face free of visible hat marks', zh: '轮毂正面须无可见压痕' }, glossBlackOnly: true },
       { key: 'orange_peel', group: 'A', label: { en: 'Smooth surface, no orange peel', zh: '表面光滑无橘皮' }, standard: { en: 'Per approved sample', zh: '按认可样品' }, glossBlackOnly: true },
       { key: 'bolt_cone_paint', group: 'A', label: { en: 'Bolt hole / cone free of paint', zh: '螺栓孔/锥座无涂料' }, standard: { en: 'Free of paint', zh: '须无涂料覆盖' } },

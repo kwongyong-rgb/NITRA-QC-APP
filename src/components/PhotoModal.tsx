@@ -8,16 +8,17 @@ export const MEAS_UNIT: Record<string, string> = {
 }
 export const getMeasUnit = (key: string) => MEAS_UNIT[key] || 'mm'
 
-const DEFECT_TYPES = [
-  'paint_inclusion','porosity','scratch_hair_lint','hat_mark',
-  'coating_issue','marking_error','out_of_tolerance','packing_defect','other'
+// Defect-type options apply ONLY to the appearance areas. Every other
+// parameter just needs a photo (a fail already means it missed the standard).
+const APPEARANCE_DEFECTS = [
+  { value: 'paint_inclusion', label: 'Paint Inclusions / 漆点杂质' },
+  { value: 'casting_porosity', label: 'Casting Failure / Porosity / 铸造缺陷·砂孔' },
+  { value: 'scratch_hair_lint', label: 'Scratches / Hair Lint / 划痕·毛丝' },
 ]
-const DEFECT_LABELS: Record<string,string> = {
-  paint_inclusion:'Paint Inclusion / 漆点', porosity:'Porosity / 砂孔',
-  scratch_hair_lint:'Scratch / Hair Lint / 划痕', hat_mark:'Hat Mark / 压痕',
-  coating_issue:'Coating Issue / 涂层问题', marking_error:'Marking Error / 标识错误',
-  out_of_tolerance:'Out of Tolerance / 超出公差', packing_defect:'Packing Defect / 包装缺陷',
-  other:'Other / 其他',
+const DEFECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  area_a: APPEARANCE_DEFECTS, area_b: APPEARANCE_DEFECTS, area_c: APPEARANCE_DEFECTS,
+  area_c1: APPEARANCE_DEFECTS, area_d: APPEARANCE_DEFECTS,
+  area_e: [{ value: 'burrs_tpms_hole', label: 'Burrs on TPMS Hole / TPMS孔毛刺' }],
 }
 
 interface BaseProps {
@@ -77,8 +78,8 @@ export function MediaThumb({ type, url, onClick }: { path?: string; type?: strin
 // ── FAIL MODAL ──────────────────────────────────────────────
 export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, onDone, onClose }: BaseProps) {
   const { t } = useI18n()
-  const [defectType, setDefectType] = useState('porosity')
-  const [severity, setSeverity] = useState('minor')
+  const defectOptions = DEFECT_OPTIONS[itemKey]
+  const [defectType, setDefectType] = useState(defectOptions ? defectOptions[0].value : 'unspecified')
   const [measValue, setMeasValue] = useState('')
   const [comment, setComment] = useState('')
   const [mediaPath, setMediaPath] = useState<string|null>(null)
@@ -95,7 +96,7 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
     const fields = {
       inspection_id: inspectionId, piece_no: pieceNo, tab,
       section: tab.toUpperCase(), item_key: itemKey, item_label: itemLabel,
-      defect_type: defectType, severity,
+      defect_type: defectType, severity: 'na',
       measurement_value: measValue !== '' ? +measValue : null,
       measurement_unit: unit || 'mm', comment, is_extra_piece: tab === 'extra',
     }
@@ -121,18 +122,13 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
           <div><b>{t('piece')}:</b> {pieceNo > 0 ? pieceNo : `extra ${-pieceNo}`}</div>
         </div>
         <div style={{ display:'grid', gap:10 }}>
-          <label className="fld"><span>{t('defectType')}</span>
-            <select className="sel" value={defectType} onChange={e => setDefectType(e.target.value)}>
-              {DEFECT_TYPES.map(d => <option key={d} value={d}>{DEFECT_LABELS[d]}</option>)}
-            </select>
-          </label>
-          <label className="fld"><span>{t('severity')}</span>
-            <select className="sel" value={severity} onChange={e => setSeverity(e.target.value)}>
-              <option value="critical">{t('critical')}</option>
-              <option value="major">{t('major')}</option>
-              <option value="minor">{t('minor')}</option>
-            </select>
-          </label>
+          {defectOptions && (
+            <label className="fld"><span>{t('defectType')}</span>
+              <select className="sel" value={defectType} onChange={e => setDefectType(e.target.value)}>
+                {defectOptions.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+            </label>
+          )}
           {(tab === 'measure' || tab === 'form') && unit && (
             <label className="fld"><span>{t('measurement')} ({unit}) — optional</span>
               <input className="txt" type="number" step="0.01" inputMode="decimal" value={measValue}

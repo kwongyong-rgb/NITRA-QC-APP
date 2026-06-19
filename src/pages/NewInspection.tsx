@@ -90,7 +90,7 @@ export default function NewInspection({ profile }: { profile: Profile }) {
                     {filtered.map(s => (
                       <div key={s.part_no} style={{ padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)',
                         background: s.part_no === partNo ? 'var(--steel)' : '#fff' }}
-                        onClick={() => select(s.part_no)}>
+                        onMouseDown={e => { e.preventDefault(); select(s.part_no) }}>
                         <div style={{ fontWeight:600 }}>{s.part_no}</div>
                         <div className="muted" style={{ fontSize:13 }}>{s.model} · {s.size} · {s.finish}</div>
                       </div>

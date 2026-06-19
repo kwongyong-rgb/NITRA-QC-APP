@@ -22,7 +22,7 @@ interface Insp {
     na_overrides?: Record<string, boolean>
   }
   pallet_data: Record<string, PFNA>
-  summary: { remarks?: string; disposition?: string }
+  summary: { remarks?: string; disposition?: string; corrective_action?: string }
   review_note: string
 }
 interface Photo {
@@ -53,6 +53,13 @@ type ModalState =
   | null
 
 const TABS = ['form','measure','photos','pallet','summary','100pct'] as const
+
+const CORRECTIVE_TEMPLATES = [
+  { label: '100% inspection + rework', text: 'Factory to conduct 100% inspection and rework all affected pieces, then re-submit for QC re-inspection before loading.' },
+  { label: 'Exclude failed pieces', text: 'Failed pieces to be segregated and excluded from loading. Only pieces passing 100% inspection may be shipped.' },
+  { label: 'Customer approval', text: 'Findings to be communicated to the customer; shipment pending customer acceptance of the noted defects.' },
+  { label: 'Acceptable — load', text: 'Findings are within acceptable limits. Container approved for loading.' },
+]
 
 const SLOT_SUGGEST: Record<string,string[]> = {
   batch_laser:['laser_format'],
@@ -738,7 +745,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
           </div>
           <div style={{ height:14 }} />
 
-          <h2 style={{ marginBottom:8, fontSize:18 }}>Summary</h2>
+          <h2 style={{ marginBottom:8, fontSize:18 }}>{t('inspectionFindings')}</h2>
           <ul style={{ marginTop:0, paddingLeft:20 }}>
             {summaryItems(outcomeRows).map((s,i) => <li key={i} style={{ marginBottom:4 }}>{s}</li>)}
           </ul>
@@ -795,17 +802,30 @@ export default function Inspection({ profile }: { profile: Profile }) {
             <select className="sel" disabled={!editable} value={insp.summary.disposition||''}
               onChange={async e => { const s={...insp.summary,disposition:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }}>
               <option value="">— {t('status')} —</option>
-              <option value="release">{t('release')}</option>
-              <option value="release_record">{t('releaseRecord')}</option>
-              <option value="hold_100">{t('hold100')}</option>
-              <option value="reject">{t('rejectDisp')}</option>
+              <option value="approved_loading">{t('dispApprovedLoading')}</option>
+              <option value="hold_rework">{t('dispHoldRework')}</option>
+              <option value="conditional_loading">{t('dispConditional')}</option>
+              <option value="pending_customer">{t('dispPendingCustomer')}</option>
             </select>
           </label>
           <div style={{ height:10 }} />
-          <label className="fld"><span>{t('remarks')}</span>
-            <textarea className="txt" rows={3} disabled={!editable} value={insp.summary.remarks||''}
-              onChange={async e => { const s={...insp.summary,remarks:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }} />
+          <label className="fld"><span>{t('correctiveAction')}</span>
+            <textarea className="txt" rows={4} disabled={!editable} value={insp.summary.corrective_action||''}
+              onChange={async e => { const s={...insp.summary,corrective_action:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }} />
           </label>
+          {editable && (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
+              <span className="muted" style={{ fontSize:12, alignSelf:'center', marginRight:2 }}>{t('insertTemplate')}:</span>
+              {CORRECTIVE_TEMPLATES.map((tpl,i) => (
+                <button key={i} className="btn ghost" style={{ minHeight:34, padding:'4px 10px', fontSize:12 }}
+                  onClick={async () => {
+                    const cur=insp.summary.corrective_action||''
+                    const s={...insp.summary, corrective_action: cur ? `${cur}\n${tpl.text}` : tpl.text}
+                    setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id)
+                  }}>{tpl.label}</button>
+              ))}
+            </div>
+          )}
           {editable && <button className="btn" style={{ width:'100%', marginTop:16 }} onClick={submit}>{t('submit')}</button>}
         </div>
       )}

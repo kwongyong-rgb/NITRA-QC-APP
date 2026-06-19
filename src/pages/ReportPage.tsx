@@ -31,7 +31,7 @@ interface ReportData {
     part_no: string; po_no: string; batch: string; lot_size: number
     app_sample: number; fun_sample: number
     submitted_at: string | null; reviewed_at: string | null
-    disposition: string | null; remarks: string
+    disposition: string | null; remarks: string; corrective_action: string
   }
   sku: { model: string; size: string; pcd: string; offset_txt: string; cb_mm: number | null; finish: string } | null
   inspectorName: string
@@ -42,6 +42,10 @@ interface ReportData {
 }
 
 const DISPOSITION: Record<string, { text: string; cls: string }> = {
+  approved_loading: { text: 'APPROVED FOR LOADING', cls: 'pass' },
+  hold_rework: { text: 'HOLD FOR REWORK & REINSPECTION', cls: 'fail' },
+  conditional_loading: { text: 'CONDITIONAL LOADING — FAILED PIECES EXCLUDED', cls: 'hold' },
+  pending_customer: { text: 'PENDING CUSTOMER APPROVAL', cls: 'hold' },
   release: { text: 'RELEASE', cls: 'pass' },
   release_record: { text: 'RELEASE WITH RECORD', cls: 'pass' },
   hold_100: { text: 'HOLD — 100% INSPECTION', cls: 'hold' },
@@ -102,11 +106,16 @@ export default function ReportPage() {
         </section>
 
         <section style={card}>
-          <h2 style={h2}>Summary</h2>
+          <h2 style={h2}>Inspection Findings</h2>
           <ul style={{ marginTop: 0, paddingLeft: 20 }}>
             {summaryItems(data.outcomes).map((s, i) => <li key={i} style={{ marginBottom: 4 }}>{s}</li>)}
           </ul>
-          {data.insp.remarks && <div style={{ background: '#F7F9FB', borderRadius: 8, padding: 12, marginTop: 4 }}><b>Inspector remarks</b><br />{data.insp.remarks}</div>}
+          {data.insp.corrective_action && (
+            <div style={{ marginTop: 14 }}>
+              <h2 style={h2}>Corrective Action / Disposition</h2>
+              <p style={{ marginTop: 0, whiteSpace: 'pre-wrap' }}>{data.insp.corrective_action}</p>
+            </div>
+          )}
         </section>
 
         <section style={card}>

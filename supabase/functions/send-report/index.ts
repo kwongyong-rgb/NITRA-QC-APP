@@ -41,11 +41,15 @@ Deno.serve(async (req) => {
     if (!emails.length) return json({ ok: false, error: 'No recipient emails provided' }, 400)
 
     const dispositionLabel: Record<string, string> = {
+      approved_loading: 'APPROVED FOR LOADING',
+      hold_rework: 'HOLD FOR REWORK & REINSPECTION',
+      conditional_loading: 'CONDITIONAL LOADING — FAILED PIECES EXCLUDED',
+      pending_customer: 'PENDING CUSTOMER APPROVAL',
       release: 'RELEASE', release_record: 'RELEASE WITH RECORD',
       hold_100: 'HOLD — 100% INSPECTION', reject: 'REJECT',
     }
     const disposition = dispositionLabel[insp.summary?.disposition] || insp.summary?.disposition || '—'
-    const isPass = disposition === 'RELEASE' || disposition === 'RELEASE WITH RECORD'
+    const isPass = insp.summary?.disposition === 'approved_loading' || disposition === 'RELEASE' || disposition === 'RELEASE WITH RECORD'
     const appUrl = (Deno.env.get('PUBLIC_APP_URL') || 'https://nitra-qc-app.vercel.app').replace(/\/$/, '')
     const reportUrl = `${appUrl}/report/${encodeURIComponent(inspection_id)}`
 
