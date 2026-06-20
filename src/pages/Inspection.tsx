@@ -5,7 +5,7 @@ import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
-import { DefectModal, PassPhotoModal, ReassignModal, MediaThumb } from '../components/PhotoModal'
+import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
 import HundredPctCheck from '../components/HundredPctCheck'
 import { REF_MAP } from '../lib/refmap'
@@ -49,6 +49,7 @@ type ModalState =
   | { type:'assign'; slotKey:string; slotLabel:string }
   | { type:'refimg'; src:string; label:string }
   | { type:'reassign'; photo:Photo }
+  | { type:'copy'; photo:Photo }
   | { type:'na_setup' }
   | null
 
@@ -87,7 +88,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [modal, setModal] = useState<ModalState>(null)
   const [submitMsg, setSubmitMsg] = useState('')
   const [history, setHistory] = useState<HistoryEntry[]>([])
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [photoFilter, setPhotoFilter] = useState<'all'|'approved'|'failed'>('all')
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
   const slotFileRef = useRef<HTMLInputElement>(null)
   const [slotForCapture, setSlotForCapture] = useState('')
@@ -402,45 +403,37 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
 
   const triggeredItems = verdicts.filter(v=>v.status==='full_inspection').map(v=>({ key:v.key, label:v.label }))
+  const baseFailsByKey: Record<string, number[]> = (() => {
+    const out: Record<string, number[]> = {}
+    const scan = (map: Record<string, PFNA> | undefined) => {
+      for (const [k, v] of Object.entries(map || {})) {
+        if (v !== 'F') continue
+        const [key, pc] = k.split(':'); const n = Number(pc)
+        if (!n) continue; (out[key] ||= []).push(n)
+      }
+    }
+    scan(insp?.form_data?.results); scan(insp?.form_data?.meas_results)
+    for (const k of Object.keys(out)) out[k] = [...new Set(out[k])].sort((a, b) => a - b)
+    return out
+  })()
   const nPieces = insp?.app_sample ?? 0
 
-  // ── Photos tab grouping ──────────────────────────────────
-  const groupedPhotos = useMemo(() => {
-    const sectionMap: Record<string, { title:string; params: Record<string,{ label:string; photos: Photo[] }> }> = {}
-    const sectionOrder: string[] = []
-
-    const getSec = (itemKey: string) => {
-      const formItem = SECTIONS.flatMap(s => s.items.map(i => ({...i,secKey:s.key,secTitle:bi(s.title)}))).find(i=>i.key===itemKey)
-      if (formItem) return { secKey:formItem.secKey, secTitle:formItem.secTitle, paramLabel: bi(formItem.label) }
-      const measSec = MEAS_SECTIONS.find(ms => ms.cols.some(c=>c.key===itemKey))
-      if (measSec) { const col = measSec.cols.find(c=>c.key===itemKey)!; return { secKey:measSec.key, secTitle:bi(measSec.title), paramLabel:bi(col.label) } }
-      if (itemKey==='') { return { secKey:'required', secTitle:'Required Shots', paramLabel:'' } }
-      return { secKey:'other', secTitle:'Other', paramLabel:itemKey.replace(/_/g,' ') }
+  // ── Photos tab grouping: pass vs fail, by parameter ──────
+  const paramGalleries = useMemo(() => {
+    const build = (pass: boolean) => {
+      const byKey: Record<string, Photo[]> = {}
+      const order: string[] = []
+      for (const p of photos) {
+        if (!p.item_key) continue                 // skip required-shot slot photos (shown above)
+        if (!!p.is_pass_photo !== pass) continue
+        if (!byKey[p.item_key]) { byKey[p.item_key] = []; order.push(p.item_key) }
+        byKey[p.item_key].push(p)
+      }
+      for (const k of order) byKey[k].sort((a, b) => a.piece_no - b.piece_no)
+      return order.map(k => ({ key: k, label: labelOf(k), photos: byKey[k] }))
     }
-
-    for (const p of photos) {
-      const { secKey, secTitle, paramLabel } = getSec(p.item_key)
-      if (!sectionMap[secKey]) { sectionMap[secKey]={ title:secTitle, params:{} }; sectionOrder.push(secKey) }
-      const pk = p.item_key || p.checklist_key || 'uncategorised'
-      const pl = paramLabel || p.checklist_key || 'Uncategorised'
-      if (!sectionMap[secKey].params[pk]) sectionMap[secKey].params[pk]={ label:pl, photos:[] }
-      sectionMap[secKey].params[pk].photos.push(p)
-    }
-    // Sort each param: fail first, then pass, then by piece_no
-    for (const sec of Object.values(sectionMap))
-      for (const param of Object.values(sec.params))
-        param.photos.sort((a,b) => (a.is_pass_photo?1:0)-(b.is_pass_photo?1:0) || a.piece_no-b.piece_no)
-
-    return { map: sectionMap, order: sectionOrder }
-  }, [photos, bi])
-
-  const toggleSection = (key: string) => {
-    setCollapsedSections(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key); else next.add(key)
-      return next
-    })
-  }
+    return { approved: build(true), failed: build(false) }
+  }, [photos, labelOf])
 
   // Keep all hooks above these early returns. React error #310 can happen if a hook is skipped on the loading render.
   if (loadErr) return (
@@ -631,22 +624,29 @@ export default function Inspection({ profile }: { profile: Profile }) {
             )
           })}
 
-          {/* Grouped photo gallery */}
-          <h2 style={{ marginTop:20, marginBottom:10 }}>{t('allPhotos')} ({photos.length})</h2>
-          {groupedPhotos.order.map(secKey => {
-            const sec = groupedPhotos.map[secKey]
-            const collapsed = collapsedSections.has(secKey)
+          {/* Photo gallery: Approved / Failed, grouped by parameter */}
+          <h2 style={{ marginTop:20, marginBottom:10 }}>{t('allPhotos')} ({photos.filter(p=>p.item_key).length})</h2>
+          <div style={{ display:'flex', gap:6, marginBottom:12 }}>
+            {([['all','All'],['approved','Approved'],['failed','Failed']] as const).map(([f,lbl]) => (
+              <button key={f} className="btn ghost"
+                style={{ minHeight:36, padding:'5px 16px', fontSize:13, ...(photoFilter===f?{ background:'var(--navy)', color:'#fff', borderColor:'var(--navy)' }:{}) }}
+                onClick={() => setPhotoFilter(f)}>{lbl}</button>
+            ))}
+          </div>
+
+          {(['approved','failed'] as const).filter(sec => photoFilter==='all'||photoFilter===sec).map(sec => {
+            const groups = sec==='approved' ? paramGalleries.approved : paramGalleries.failed
+            const pass = sec==='approved'
             return (
-              <div key={secKey} style={{ marginBottom:16 }}>
-                <button onClick={() => toggleSection(secKey)}
-                  style={{ width:'100%', background:'var(--navy)', color:'#fff', border:'none', borderRadius:8, padding:'10px 14px', textAlign:'left', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontWeight:700, fontFamily:'var(--display)' }}>
-                  <span>{sec.title}</span><span>{collapsed?'▶':'▼'}</span>
-                </button>
-                {!collapsed && Object.entries(sec.params).map(([pk, param]) => (
-                  <div key={pk} style={{ marginLeft:12, marginTop:10 }}>
-                    <div style={{ fontWeight:600, color:'var(--navy)', marginBottom:8, fontSize:14 }}>{param.label}</div>
+              <div key={sec} style={{ marginBottom:18 }}>
+                <div style={{ background: pass?'var(--pass)':'var(--fail)', color:'#fff', borderRadius:8, padding:'8px 14px', fontWeight:700, fontFamily:'var(--display)' }}>
+                  {pass?'✓ Approved Inspection Photos':'✗ Failed Inspection Photos'}
+                </div>
+                {groups.length>0 ? groups.map(g => (
+                  <div key={g.key} style={{ marginLeft:6, marginTop:12 }}>
+                    <div style={{ fontWeight:600, color:'var(--navy)', marginBottom:8, fontSize:14 }}>{g.label}</div>
                     <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                      {param.photos.map(p => {
+                      {g.photos.map(p => {
                         const url = photoUrls[p.storage_path]
                         return (
                           <div key={p.id} style={{ position:'relative' }}>
@@ -659,19 +659,23 @@ export default function Inspection({ profile }: { profile: Profile }) {
                               </div>
                             </div>
                             {editable && (
-                              <button style={{ position:'absolute', top:4, right:4, background:'rgba(0,0,0,.6)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
-                                onClick={() => setModal({ type:'reassign', photo:p })}>↻</button>
+                              <div style={{ position:'absolute', top:4, right:4, display:'flex', gap:4 }}>
+                                <button title="Reassign to another parameter" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
+                                  onClick={() => setModal({ type:'reassign', photo:p })}>↻</button>
+                                <button title="Copy to other parameters" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
+                                  onClick={() => setModal({ type:'copy', photo:p })}>⧉</button>
+                              </div>
                             )}
                           </div>
                         )
                       })}
                     </div>
                   </div>
-                ))}
+                )) : <p className="muted" style={{ marginTop:10 }}>{pass?'No approved photos.':'No failed photos.'}</p>}
               </div>
             )
           })}
-          {photos.length===0 && <p className="muted">{t('noPhotoYet')}</p>}
+          {photos.filter(p=>p.item_key).length===0 && <p className="muted">{t('noPhotoYet')}</p>}
         </div>
       )}
 
@@ -724,6 +728,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {/* ── 100% CHECK TAB ── */}
       {tab==='100pct' && (
         <HundredPctCheck inspectionId={insp.id} lotSize={insp.lot_size} triggeredItems={triggeredItems}
+          baseFails={baseFailsByKey}
           results={(insp.form_data.hundred_pct||{}) as Record<string,Record<string,PFNA>>}
           editable={editable}
           onSave={async (itemKey, pieceNo, result) => {
@@ -883,6 +888,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
       )}
       {modal?.type==='reassign' && (
         <ReassignModal photo={modal.photo} allItems={allItemsForReassign} maxPiece={Math.max(insp.app_sample, insp.fun_sample)}
+          onDone={() => { setModal(null); load() }} onClose={() => setModal(null)} />
+      )}
+      {modal?.type==='copy' && (
+        <CopyModal inspectionId={insp.id} photo={modal.photo} allItems={allItemsForReassign}
           onDone={() => { setModal(null); load() }} onClose={() => setModal(null)} />
       )}
     </div>

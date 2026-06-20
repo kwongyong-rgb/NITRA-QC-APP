@@ -6,6 +6,7 @@ interface Props {
   inspectionId: string
   lotSize: number
   triggeredItems: { key: string; label: string }[]
+  baseFails: Record<string, number[]>
   results: Record<string, Record<string, PFNA>>
   onSave: (key: string, pieceNo: number, result: PFNA) => void
   editable: boolean
@@ -16,17 +17,18 @@ type ModalState =
   | { type: 'pass'; itemKey: string; itemLabel: string; pieceNo: number }
   | null
 
-export default function HundredPctCheck({ inspectionId, lotSize, triggeredItems, results, onSave, editable }: Props) {
+export default function HundredPctCheck({ inspectionId, lotSize, triggeredItems, baseFails, results, onSave, editable }: Props) {
   const [activeItem, setActiveItem] = useState(triggeredItems[0]?.key || '')
   const [modal, setModal] = useState<ModalState>(null)
 
   const item = triggeredItems.find(i => i.key === activeItem) || triggeredItems[0]
   if (!item) return null
   const itemResults = results[item.key] || {}
+  const lockedSet = new Set(baseFails[item.key] || [])
 
   const pieces = Array.from({ length: lotSize }, (_, i) => i + 1)
-  const checked = pieces.filter(n => itemResults[String(n)] !== undefined).length
-  const fails = pieces.filter(n => itemResults[String(n)] === 'F').length
+  const checked = pieces.filter(n => lockedSet.has(n) || itemResults[String(n)] !== undefined).length
+  const fails = pieces.filter(n => lockedSet.has(n) || itemResults[String(n)] === 'F').length
 
   const rows: number[][] = []
   for (let i = 0; i < lotSize; i += 10)
@@ -59,39 +61,41 @@ export default function HundredPctCheck({ inspectionId, lotSize, triggeredItems,
 
       <div className="muted" style={{ marginBottom:10, fontSize:13 }}>
         Checking: <b>{item.label}</b> · Tap <b>P</b> or <b>F</b> to record instantly. Tap the piece number after to add optional photo/video.
+        {lockedSet.size > 0 && <> · 🔒 Pieces that failed the initial check are pre-marked <b style={{ color:'var(--fail)' }}>F</b> and locked — no need to re-inspect.</>}
       </div>
 
       {rows.map((row, ri) => (
         <div key={ri} style={{ display:'flex', gap:4, marginBottom:4, flexWrap:'wrap' }}>
           {row.map(n => {
-            const val = itemResults[String(n)]
+            const locked = lockedSet.has(n)
+            const val = locked ? 'F' : itemResults[String(n)]
             return (
               <div key={n} style={{ width:52, border:'1.5px solid var(--line)', borderRadius:8,
                 background: val === 'P' ? 'var(--pass-bg)' : val === 'F' ? 'var(--fail-bg)' : '#fff',
                 borderColor: val === 'P' ? 'var(--pass)' : val === 'F' ? 'var(--fail)' : 'var(--line)',
-                overflow:'hidden' }}>
-                {/* Piece number — tap to add optional photo */}
+                overflow:'hidden', opacity: locked ? 0.85 : 1 }}>
+                {/* Piece number — tap to add optional photo (disabled for locked base fails) */}
                 <button
                   style={{ width:'100%', textAlign:'center', fontSize:11, fontWeight:700, padding:'3px 0',
                     border:'none', borderBottom:'1px solid var(--line)', background:'rgba(0,0,0,.04)',
-                    cursor: val ? 'pointer' : 'default', color: val ? 'var(--navy)' : 'inherit' }}
+                    cursor: (!locked && val) ? 'pointer' : 'default', color: val ? 'var(--navy)' : 'inherit' }}
                   onClick={() => {
-                    if (!editable || !val) return
+                    if (!editable || locked || !val) return
                     setModal({ type: val === 'F' ? 'fail' : 'pass', itemKey: item.key, itemLabel: item.label, pieceNo: n })
                   }}>
-                  {n}{val ? ' 📷' : ''}
+                  {locked ? `${n} 🔒` : `${n}${val ? ' 📷' : ''}`}
                 </button>
-                {/* P / F — instant save, no popup */}
+                {/* P / F — instant save, no popup (locked base fails are read-only) */}
                 <div style={{ display:'flex' }}>
-                  <button disabled={!editable}
+                  <button disabled={!editable || locked}
                     style={{ flex:1, border:'none', borderRight:'1px solid var(--line)', minHeight:36,
                       background: val === 'P' ? 'var(--pass)' : 'transparent',
-                      color: val === 'P' ? '#fff' : 'var(--pass)', fontWeight:700, fontSize:13, cursor:'pointer' }}
+                      color: val === 'P' ? '#fff' : 'var(--pass)', fontWeight:700, fontSize:13, cursor: locked ? 'default' : 'pointer' }}
                     onClick={() => onSave(item.key, n, val === 'P' ? undefined : 'P')}>P</button>
-                  <button disabled={!editable}
+                  <button disabled={!editable || locked}
                     style={{ flex:1, border:'none', minHeight:36,
                       background: val === 'F' ? 'var(--fail)' : 'transparent',
-                      color: val === 'F' ? '#fff' : 'var(--fail)', fontWeight:700, fontSize:13, cursor:'pointer' }}
+                      color: val === 'F' ? '#fff' : 'var(--fail)', fontWeight:700, fontSize:13, cursor: locked ? 'default' : 'pointer' }}
                     onClick={() => onSave(item.key, n, val === 'F' ? undefined : 'F')}>F</button>
                 </div>
               </div>

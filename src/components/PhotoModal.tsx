@@ -269,3 +269,62 @@ export function ReassignModal({ photo, allItems, maxPiece, onDone, onClose }: Re
     </div>
   )
 }
+
+// ── COPY MODAL ──────────────────────────────────────────────
+interface CopyProps {
+  inspectionId: string
+  photo: { storage_path: string; media_type?: string; is_pass_photo: boolean; piece_no: number; item_key: string; comment?: string }
+  allItems: { key: string; label: string }[]
+  onDone: () => void; onClose: () => void
+}
+export function CopyModal({ inspectionId, photo, allItems, onDone, onClose }: CopyProps) {
+  const { t } = useI18n()
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [saving, setSaving] = useState(false)
+  const toggle = (k: string) => setSelected(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+
+  const save = async () => {
+    if (selected.size === 0) { onClose(); return }
+    setSaving(true)
+    const rows = [...selected].map(k => ({
+      inspection_id: inspectionId, storage_path: photo.storage_path, media_type: photo.media_type || 'photo',
+      is_pass_photo: photo.is_pass_photo, item_key: k, piece_no: photo.piece_no, comment: photo.comment || '',
+      reassigned_from: { item_key: photo.item_key, piece_no: photo.piece_no, copied: true },
+    }))
+    const { error } = await supabase.from('photos').insert(rows)
+    setSaving(false)
+    if (error) { alert('Copy failed: ' + error.message); return }
+    onDone()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h2 style={{ marginBottom:6 }}>⧉ Copy to parameters</h2>
+        <p className="muted" style={{ fontSize:13, marginTop:0, marginBottom:12 }}>
+          Attach this same {photo.media_type === 'video' ? 'video' : 'photo'} to other inspection parameters
+          (e.g. one back-of-wheel shot for every back-marking check). The original stays where it is.
+        </p>
+        <div style={{ maxHeight:'46vh', overflowY:'auto', display:'grid', gap:4 }}>
+          {allItems.filter(i => i.key !== photo.item_key).map(i => {
+            const on = selected.has(i.key)
+            return (
+              <button key={i.key} onClick={() => toggle(i.key)}
+                style={{ display:'flex', alignItems:'center', gap:8, textAlign:'left', padding:'9px 10px', borderRadius:8,
+                  border:`1.5px solid ${on ? 'var(--navy)' : 'var(--line)'}`, background: on ? 'var(--navy)' : '#fff',
+                  color: on ? '#fff' : 'inherit', cursor:'pointer', fontSize:14 }}>
+                <span style={{ fontWeight:700 }}>{on ? '☑' : '☐'}</span> {i.label}
+              </button>
+            )
+          })}
+        </div>
+        <div className="row" style={{ marginTop:16 }}>
+          <button className="btn" style={{ flex:1 }} disabled={saving || selected.size === 0} onClick={save}>
+            {saving ? '…' : `Copy to ${selected.size} parameter${selected.size === 1 ? '' : 's'}`}
+          </button>
+          <button className="btn ghost" onClick={onClose}>{t('cancel')}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
