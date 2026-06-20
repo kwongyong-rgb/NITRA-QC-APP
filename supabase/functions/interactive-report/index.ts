@@ -162,6 +162,7 @@ Deno.serve(async (req) => {
         return Number(a.piece_no || 0) - Number(b.piece_no || 0)
       })
       return {
+        key,
         label: labelOf(key),
         photos: sorted.map((p: any) => ({
           isPass: !!p.is_pass_photo,

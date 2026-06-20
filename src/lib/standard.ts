@@ -203,7 +203,7 @@ export const PHOTO_SLOTS: { key: string; label: Bi }[] = [
   { key: 'container_seal', label: { en: 'Seal # (legible)', zh: '封号(清晰)' } },
 ]
 
-export const PALLET_ITEMS: { key: string; label: Bi }[] = [
+export const PALLET_PACKING_ITEMS: { key: string; label: Bi }[] = [
   { key: 'pl_grouped', label: { en: 'Wheels stacked & grouped by part no.', zh: '按产品编号分类堆叠' } },
   { key: 'pl_wood', label: { en: 'Fumigation-free solid-wood pallet', zh: '免熏蒸实木托盘' } },
   { key: 'pl_height', label: { en: 'Height ≤254 cm, 3-inch fork gap', zh: '高≤254cm，留3英寸叉车位' } },
@@ -211,9 +211,15 @@ export const PALLET_ITEMS: { key: string; label: Bi }[] = [
   { key: 'pl_wrap', label: { en: 'Wrap ≥3 layers, ≥0.35 mm, tight', zh: '缠绕≥3层，≥0.35mm，紧实' } },
   { key: 'pl_label4', label: { en: 'Pallet label on all 4 sides', zh: '四面贴托盘标签' } },
   { key: 'pl_photo', label: { en: 'Photo of each pallet taken', zh: '每托盘拍照' } },
+]
+
+// Container-level checks — moving to a PO-level Container Loading tab in a later update.
+export const CONTAINER_ITEMS: { key: string; label: Bi }[] = [
   { key: 'ct_photo_before', label: { en: 'Container damage + empty photographed', zh: '装柜前破损/空柜拍照' } },
   { key: 'ct_labels_doors', label: { en: 'Box labels + hand-holes face doors', zh: '标签面/把手孔朝柜门' } },
   { key: 'ct_no_loose', label: { en: 'No loose wheels', zh: '无散装轮毂' } },
   { key: 'ct_spares_front', label: { en: 'Spare boxes/caps at front', zh: '备用箱/盖置于柜门口' } },
   { key: 'ct_net', label: { en: 'Net/rope before closing doors', zh: '关门前装防护网/绳' } },
 ]
+
+export const PALLET_ITEMS: { key: string; label: Bi }[] = [...PALLET_PACKING_ITEMS, ...CONTAINER_ITEMS]

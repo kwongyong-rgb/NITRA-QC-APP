@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
-import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
+import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, PALLET_PACKING_ITEMS, CONTAINER_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb } from '../components/PhotoModal'
@@ -20,6 +20,7 @@ interface Insp {
   form_data: FormData & {
     hundred_pct?: Record<string, Record<string, PFNA>>
     na_overrides?: Record<string, boolean>
+    pallet_count?: number
   }
   pallet_data: Record<string, PFNA>
   summary: { remarks?: string; disposition?: string; corrective_action?: string }
@@ -36,7 +37,7 @@ interface Defect {
   measurement_unit: string; comment: string; tab: string
 }
 interface HistoryEntry {
-  type: 'set_result'|'set_meas'|'select_all'|'set_pallet'|'set_na'
+  type: 'set_result'|'set_meas'|'select_all'|'set_pallet'|'pallet_all'|'set_na'
   key: string; prev: PFNA; isMeas?: boolean
   prevMap?: Record<string,PFNA>
 }
@@ -215,6 +216,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
       if (last.prev===undefined) delete pd[last.key]; else pd[last.key]=last.prev
       setInsp({ ...insp, pallet_data: pd })
       await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
+    } else if (last.type==='pallet_all' && last.prevMap) {
+      const pd = { ...insp.pallet_data }
+      for (const [k,v] of Object.entries(last.prevMap)) { if (v===undefined) delete pd[k]; else pd[k]=v }
+      setInsp({ ...insp, pallet_data: pd })
+      await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
     }
     load()
   }
@@ -266,18 +272,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const f = outcomeRows.filter(r => r.fail > 0).map(r => r.parameter)
     return f.length ? f.join(', ') : 'the affected parameter(s)'
   }, [outcomeRows])
-  const appendixGroups = useMemo(() => {
-    const map = new Map<string, typeof photos>()
-    for (const p of photos) {
-      const key = p.item_key || p.checklist_key || 'required_shots'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(p)
-    }
-    return [...map.entries()].map(([key, list]) => ({
-      label: labelOf(key),
-      photos: [...list].sort((a,b) => (Number(b.is_pass_photo)-Number(a.is_pass_photo)) || (a.piece_no - b.piece_no)),
-    }))
-  }, [photos, labelOf])
   const verdicts = useMemo(() => {
     if (!insp) return []
     return evaluateAll(insp.form_data, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, 4, 2)
@@ -414,6 +408,36 @@ export default function Inspection({ profile }: { profile: Profile }) {
     for (const ms of MEAS_SECTIONS) secs.push({ title: bi(ms.title), params: ms.cols.map(c => ({ key: c.key, label: bi(c.label), photos: byKey[c.key] || [] })) })
     return secs
   }, [photos, bi])
+
+  const deletePhoto = async (p: Photo) => {
+    if (!confirm('Delete this photo/video? This cannot be undone.')) return
+    const { data, error } = await supabase.from('photos').delete().eq('id', p.id).select('id')
+    if (error) { alert('Delete failed: ' + error.message); return }
+    if (!data || data.length === 0) { alert('Delete was blocked by the database (photos RLS). Run migration 06 in the Supabase SQL Editor, then try again.'); return }
+    load()
+  }
+
+  // Report appendix: section header → parameter, split Approved / Failed (mirrors the Photos tab)
+  const appendixSections = (pass: boolean) => {
+    const secs = photoSections
+      .map(sec => ({
+        title: sec.title,
+        params: sec.params
+          .map(pm => ({ label: pm.label, photos: pm.photos.filter(p => p.is_pass_photo === pass) }))
+          .filter(pm => pm.photos.length),
+      }))
+      .filter(sec => sec.params.length)
+    const known = new Set<string>()
+    for (const sec of photoSections) for (const pm of sec.params) known.add(pm.key)
+    const otherByKey = new Map<string, Photo[]>()
+    for (const p of photos) {
+      if (!p.item_key || known.has(p.item_key) || p.is_pass_photo !== pass) continue
+      if (!otherByKey.has(p.item_key)) otherByKey.set(p.item_key, [])
+      otherByKey.get(p.item_key)!.push(p)
+    }
+    if (otherByKey.size) secs.push({ title: 'Other', params: [...otherByKey.entries()].map(([k, ph]) => ({ label: labelOf(k), photos: ph })) })
+    return secs
+  }
 
   // Keep all hooks above these early returns. React error #310 can happen if a hook is skipped on the loading render.
   if (loadErr) return (
@@ -612,6 +636,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
                                     onClick={() => setModal({ type:'reassign', photo:p })}>↻</button>
                                   <button title="Copy to other parameters" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
                                     onClick={() => setModal({ type:'copy', photo:p })}>⧉</button>
+                                  <button title="Delete" style={{ background:'rgba(204,17,34,.85)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
+                                    onClick={() => deletePhoto(p)}>🗑</button>
                                 </div>
                               )}
                             </div>
@@ -631,44 +657,121 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {tab==='pallet' && (
         <div className="card">
           <h2>{t('tabPallet')}</h2>
-          {PALLET_ITEMS.map(item => {
-            const val = insp.pallet_data[item.key]
-            const ph = photos.filter(p => p.item_key===item.key)
-            return (
-              <div key={item.key} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)' }}>
-                <div className="row" style={{ gap:10 }}>
-                  <div style={{ flex:1, display:'flex', alignItems:'center', gap:4 }}>
-                    <span style={{ fontWeight:600, fontSize:15 }}>{bi(item.label)}</span>
-                    <RefIcon itemKey={item.key} label={bi(item.label)} />
+          <label className="fld" style={{ maxWidth:240 }}><span>{t('palletCount')} (1–22)</span>
+            <input className="txt" type="number" min={1} max={22} disabled={!editable}
+              value={insp.form_data.pallet_count ?? ''}
+              onChange={async e => { const n=Math.max(0,Math.min(22,Math.floor(+e.target.value||0))); await saveFd({ ...insp.form_data, pallet_count:n }) }} />
+          </label>
+
+          {(() => {
+            const palletCount = insp.form_data.pallet_count ?? 0
+            if (palletCount < 1) return <p className="muted" style={{ marginTop:12 }}>Enter the number of pallets to inspect.</p>
+            const pallets = Array.from({ length: palletCount }, (_, i) => i + 1)
+            const setCell = async (key: string, label: string, n: number, v: PFNA) => {
+              const fk = `${key}:${n}`; const prev = insp.pallet_data[fk]; const nv = prev===v ? undefined : v
+              setHistory(h => [...h, { type:'set_pallet', key:fk, prev }])
+              const pd = { ...insp.pallet_data }; if (nv===undefined) delete pd[fk]; else pd[fk]=nv
+              setInsp({ ...insp, pallet_data: pd })
+              await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
+              if (nv==='F' && prev!=='F') await ensureDefect(key, label, n, 'pallet')
+              if (prev==='F' && nv!=='F') await removeDefect(key, n, 'pallet')
+              load()
+            }
+            const setAll = async (key: string, v: PFNA) => {
+              const pd = { ...insp.pallet_data }; const prevMap: Record<string, PFNA> = {}
+              for (const n of pallets) { const fk=`${key}:${n}`; prevMap[fk]=pd[fk]; pd[fk]=v }
+              setHistory(h => [...h, { type:'pallet_all', key, prev:undefined, prevMap }])
+              setInsp({ ...insp, pallet_data: pd })
+              await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
+              load()
+            }
+            return PALLET_PACKING_ITEMS.map(item => (
+              <div key={item.key} style={{ padding:'12px 0', borderBottom:'1px solid var(--line)' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                  <span style={{ fontWeight:600, fontSize:15 }}>{bi(item.label)}</span>
+                  <RefIcon itemKey={item.key} label={bi(item.label)} />
+                </div>
+                {editable && (
+                  <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
+                    <button className="btn ghost" style={{ minHeight:32, padding:'3px 12px', fontSize:12, color:'var(--pass)', borderColor:'var(--pass)' }} onClick={() => setAll(item.key,'P')}>All P</button>
+                    <button className="btn ghost" style={{ minHeight:32, padding:'3px 12px', fontSize:12, color:'var(--fail)', borderColor:'var(--fail)' }} onClick={() => setAll(item.key,'F')}>All F</button>
+                    <button className="btn ghost" style={{ minHeight:32, padding:'3px 12px', fontSize:12 }} onClick={() => setAll(item.key,'NA')}>All NA</button>
                   </div>
-                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                    <div className="pfna">
-                      {(['P','F','NA'] as const).map(v => (
-                        <button key={v} disabled={!editable}
-                          className={`${v==='P'?'p':v==='F'?'f':'n'} ${val===v?'on':''}`}
-                          onClick={async () => {
-                            const prev=val; const newVal=val===v?undefined:v
-                            setHistory(h => [...h, { type:'set_pallet', key:item.key, prev }])
-                            const pd={...insp.pallet_data,[item.key]:newVal}
-                            setInsp({...insp, pallet_data:pd})
-                            await supabase.from('inspections').update({ pallet_data:pd, updated_at:new Date().toISOString() }).eq('id', insp.id)
-                            if (newVal==='F' && prev!=='F') await ensureDefect(item.key, bi(item.label), 0, 'pallet')
-                            if (prev==='F' && newVal!=='F') await removeDefect(item.key, 0, 'pallet')
-                            load()
-                          }}>{v}</button>
-                      ))}
-                    </div>
-                    {editable && val && val!=='NA' && (
-                      <button className={`plus-btn ${ph.length>0?(val==='P'?'has-photo':'has-fail-photo'):''}`}
-                        onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:0, tab:'pallet' })}>
-                        {ph.length>0?`📷 ${ph.length}`:'📷+'}
-                      </button>
-                    )}
-                  </div>
+                )}
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  {pallets.map(n => {
+                    const val = insp.pallet_data[`${item.key}:${n}`]
+                    const ph = photos.filter(p => p.item_key===item.key && p.piece_no===n)
+                    return (
+                      <div key={n} style={{ width:86, border:`1.5px solid ${val==='P'?'var(--pass)':val==='F'?'var(--fail)':'var(--line)'}`, borderRadius:8, overflow:'hidden',
+                        background: val==='P'?'var(--pass-bg)':val==='F'?'var(--fail-bg)':'#fff' }}>
+                        <button disabled={!editable || !val || val==='NA'}
+                          style={{ width:'100%', fontSize:11, fontWeight:700, padding:'3px 0', border:'none', borderBottom:'1px solid var(--line)', background:'rgba(0,0,0,.04)', color:'var(--navy)', cursor:(val&&val!=='NA')?'pointer':'default' }}
+                          onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:n, tab:'pallet' })}>
+                          Pallet {n}{ph.length>0?' 📷':''}
+                        </button>
+                        <div style={{ display:'flex' }}>
+                          {(['P','F','NA'] as const).map(v => (
+                            <button key={v} disabled={!editable}
+                              style={{ flex:1, border:'none', borderRight: v!=='NA'?'1px solid var(--line)':'none', minHeight:34,
+                                background: val===v ? (v==='P'?'var(--pass)':v==='F'?'var(--fail)':'var(--ink-soft)') : 'transparent',
+                                color: val===v ? '#fff' : (v==='P'?'var(--pass)':v==='F'?'var(--fail)':'var(--ink-soft)'),
+                                fontWeight:700, fontSize:11, cursor:'pointer' }}
+                              onClick={() => setCell(item.key, bi(item.label), n, v)}>{v}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
-            )
-          })}
+            ))
+          })()}
+
+          <div style={{ marginTop:18 }}>
+            <div style={{ background:'var(--amber)', color:'#fff', borderRadius:8, padding:'8px 12px', fontWeight:700, fontFamily:'var(--display)', fontSize:13 }}>
+              Container Loading — moving to PO level in a later update
+            </div>
+            {CONTAINER_ITEMS.map(item => {
+              const val = insp.pallet_data[item.key]
+              const ph = photos.filter(p => p.item_key===item.key && p.piece_no===0)
+              return (
+                <div key={item.key} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)' }}>
+                  <div className="row" style={{ gap:10 }}>
+                    <div style={{ flex:1, display:'flex', alignItems:'center', gap:4 }}>
+                      <span style={{ fontWeight:600, fontSize:15 }}>{bi(item.label)}</span>
+                      <RefIcon itemKey={item.key} label={bi(item.label)} />
+                    </div>
+                    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                      <div className="pfna">
+                        {(['P','F','NA'] as const).map(v => (
+                          <button key={v} disabled={!editable}
+                            className={`${v==='P'?'p':v==='F'?'f':'n'} ${val===v?'on':''}`}
+                            onClick={async () => {
+                              const prev=val; const newVal=val===v?undefined:v
+                              setHistory(h => [...h, { type:'set_pallet', key:item.key, prev }])
+                              const pd={...insp.pallet_data}; if(newVal===undefined) delete pd[item.key]; else pd[item.key]=newVal
+                              setInsp({...insp, pallet_data:pd})
+                              await supabase.from('inspections').update({ pallet_data:pd, updated_at:new Date().toISOString() }).eq('id', insp.id)
+                              if (newVal==='F' && prev!=='F') await ensureDefect(item.key, bi(item.label), 0, 'pallet')
+                              if (prev==='F' && newVal!=='F') await removeDefect(item.key, 0, 'pallet')
+                              load()
+                            }}>{v}</button>
+                        ))}
+                      </div>
+                      {editable && val && val!=='NA' && (
+                        <button className={`plus-btn ${ph.length>0?(val==='P'?'has-photo':'has-fail-photo'):''}`}
+                          onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:0, tab:'pallet' })}>
+                          {ph.length>0?`📷 ${ph.length}`:'📷+'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
           {editable && history.length>0 && <button className="btn ghost" style={{ marginTop:12, minHeight:36, padding:'4px 12px', fontSize:13, borderColor:'var(--amber)', color:'var(--amber)' }} onClick={undoLast}>{t('undo')} ({history.length})</button>}
         </div>
       )}
@@ -750,29 +853,45 @@ export default function Inspection({ profile }: { profile: Profile }) {
           ) : <p className="muted">No parameters inspected yet.</p>}
 
           <h2 style={{ margin:'18px 0 8px', fontSize:18 }}>Photo / Video Appendix</h2>
-          {appendixGroups.length>0 ? appendixGroups.map((g,gi) => (
-            <div key={gi} style={{ marginTop: gi?14:0 }}>
-              <div style={{ fontWeight:700, color:'var(--navy)', marginBottom:6, textTransform:'capitalize' }}>{g.label}</div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:10 }}>
-                {g.photos.map(p => {
-                  const u = photoUrls[p.storage_path]
-                  const pieceTxt = p.piece_no ? (p.piece_no<0?`Additional`:`Piece ${p.piece_no}`) : 'Required photo'
-                  return (
-                    <figure key={p.id} style={{ margin:0, border:'1px solid var(--line)', borderRadius:10, overflow:'hidden', background:'#fff' }}>
-                      <button onClick={() => { if(u) setModal({ type:'preview', url:u, mediaType:p.media_type }) }}
-                        style={{ width:'100%', height:96, border:0, background:'#EEF1F5', cursor:'pointer', padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        {p.media_type==='video' ? <span style={{ fontSize:28, color:'var(--navy)' }}>▶</span>
-                          : u ? <img src={u} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span className="muted" style={{ fontSize:12 }}>…</span>}
-                      </button>
-                      <figcaption style={{ fontSize:11, color:'var(--ink-soft)', padding:6 }}>
-                        <b style={{ color: p.is_pass_photo?'var(--pass)':'var(--fail)' }}>{p.is_pass_photo?'PASS':'FAIL'}</b> · {pieceTxt}
-                      </figcaption>
-                    </figure>
-                  )
-                })}
+          {(['pass','fail'] as const).map(kind => {
+            const pass = kind==='pass'
+            const secs = appendixSections(pass)
+            return (
+              <div key={kind} style={{ marginBottom:14 }}>
+                <div style={{ background: pass?'var(--pass)':'var(--fail)', color:'#fff', borderRadius:8, padding:'7px 12px', fontWeight:700, fontFamily:'var(--display)' }}>
+                  {pass?'✓ Approved Inspection Photos':'✗ Failed Inspection Photos'}
+                </div>
+                {secs.length>0 ? secs.map(sec => (
+                  <div key={sec.title} style={{ marginTop:10 }}>
+                    <div style={{ fontWeight:700, color:'var(--navy)', fontSize:13, margin:'6px 0 4px' }}>{sec.title}</div>
+                    {sec.params.map(pm => (
+                      <div key={pm.label} style={{ marginLeft:8, marginBottom:8 }}>
+                        <div style={{ fontWeight:600, fontSize:13, marginBottom:4 }}>{pm.label}</div>
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(110px, 1fr))', gap:8 }}>
+                          {pm.photos.map(p => {
+                            const u = photoUrls[p.storage_path]
+                            const pieceTxt = p.piece_no ? (p.piece_no<0?`Additional`:`Piece ${p.piece_no}`) : 'Required photo'
+                            return (
+                              <figure key={p.id} style={{ margin:0, border:'1px solid var(--line)', borderRadius:10, overflow:'hidden', background:'#fff' }}>
+                                <button onClick={() => { if(u) setModal({ type:'preview', url:u, mediaType:p.media_type }) }}
+                                  style={{ width:'100%', height:90, border:0, background:'#EEF1F5', cursor:'pointer', padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                  {p.media_type==='video' ? <span style={{ fontSize:26, color:'var(--navy)' }}>▶</span>
+                                    : u ? <img src={u} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span className="muted" style={{ fontSize:12 }}>…</span>}
+                                </button>
+                                <figcaption style={{ fontSize:11, color:'var(--ink-soft)', padding:6 }}>
+                                  <b style={{ color: pass?'var(--pass)':'var(--fail)' }}>{pass?'PASS':'FAIL'}</b> · {pieceTxt}
+                                </figcaption>
+                              </figure>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )) : <p className="muted" style={{ marginTop:8, marginBottom:0 }}>{pass?'No approved photos.':'No failed photos.'}</p>}
               </div>
-            </div>
-          )) : <p className="muted">No photos or videos taken.</p>}
+            )
+          })}
 
           <div style={{ height:14 }} />
           <label className="fld"><span>{t('disposition')} *</span>

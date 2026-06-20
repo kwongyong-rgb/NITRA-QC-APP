@@ -226,11 +226,17 @@ export function ReassignModal({ photo, allItems, maxPiece, onDone, onClose }: Re
 
   const save = async () => {
     setSaving(true)
-    // Update photo record
-    await supabase.from('photos').update({
+    // Update photo record (return the row so we can detect a silent RLS 0-row update)
+    const { data, error } = await supabase.from('photos').update({
       item_key: itemKey, piece_no: pieceNo, is_pass_photo: isPass,
       reassigned_from: { item_key: photo.item_key, piece_no: photo.piece_no },
-    }).eq('id', photo.id)
+    }).eq('id', photo.id).select('id')
+    if (error) { setSaving(false); alert('Reassign failed: ' + error.message); return }
+    if (!data || data.length === 0) {
+      setSaving(false)
+      alert('Reassignment did not save — the database blocked the update (photos RLS). Run migration 06 in the Supabase SQL Editor, then try again.')
+      return
+    }
     // If it was linked to a defect and now it's pass, unlink
     if (isPass && photo.defect_id) {
       await supabase.from('photos').update({ defect_id: null }).eq('id', photo.id)

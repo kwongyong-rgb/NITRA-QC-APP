@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { summaryItems } from '../lib/outcome'
+import { SECTIONS, MEAS_SECTIONS } from '../lib/standard'
+
+const APPENDIX_SECTION_DEFS: { title: string; keys: string[] }[] = [
+  ...SECTIONS.map(s => ({ title: s.title.en, keys: s.items.map(i => i.key) })),
+  ...MEAS_SECTIONS.map(ms => ({ title: ms.title.en, keys: ms.cols.map(c => c.key) })),
+]
+const SECTION_OF: Record<string, string> = {}
+for (const s of APPENDIX_SECTION_DEFS) for (const k of s.keys) SECTION_OF[k] = s.title
+const APPENDIX_TITLES = [...APPENDIX_SECTION_DEFS.map(s => s.title), 'Other']
 
 interface DefectRow {
   parameter: string
@@ -15,7 +24,7 @@ interface PhotoItem {
   mediaType: string
   comment: string
 }
-interface PhotoGroup { label: string; photos: PhotoItem[] }
+interface PhotoGroup { key: string; label: string; photos: PhotoItem[] }
 interface OutcomeRow {
   parameter: string
   checked: number
@@ -148,28 +157,49 @@ export default function ReportPage() {
 
         <section style={card}>
           <h2 style={h2}>Photo / Video Appendix</h2>
-          {data.photoGroups.length ? data.photoGroups.map((g, gi) => (
-            <div key={gi} style={{ marginTop: gi ? 14 : 0 }}>
-              <h4 style={{ margin: '0 0 8px', color: 'var(--navy)', textTransform: 'capitalize' }}>{g.label}</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
-                {g.photos.map((p, pi) => (
-                  <figure key={pi} style={{ margin: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
-                    {p.mediaUrl ? (
-                      <button onClick={() => setLightbox({ url: p.mediaUrl!, type: p.mediaType })}
-                        style={{ width: '100%', height: 120, border: 0, background: '#EEF1F5', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {p.mediaType === 'video' ? <span style={{ fontSize: 34, color: 'var(--navy)' }}>▶</span>
-                          : <img src={p.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                      </button>
-                    ) : <div style={{ width: '100%', height: 120, background: '#EEF1F5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>No media</div>}
-                    <figcaption style={{ fontSize: 11, color: 'var(--ink-soft)', padding: 8 }}>
-                      <b style={{ color: p.isPass ? 'var(--pass)' : 'var(--fail)' }}>{p.isPass ? 'PASS' : 'FAIL'}</b> · {p.pieceLabel}
-                      {p.comment && <><br />{p.comment}</>}
-                    </figcaption>
-                  </figure>
-                ))}
+          {(['pass', 'fail'] as const).map(kind => {
+            const pass = kind === 'pass'
+            const secs = APPENDIX_TITLES.map(title => {
+              const params = data.photoGroups
+                .map(g => ({ key: g.key, label: g.label, photos: g.photos.filter(p => p.isPass === pass) }))
+                .filter(g => g.photos.length && (SECTION_OF[g.key] || 'Other') === title)
+              return { title, params }
+            }).filter(s => s.params.length)
+            return (
+              <div key={kind} style={{ marginBottom: 16 }}>
+                <div style={{ background: pass ? 'var(--pass)' : 'var(--fail)', color: '#fff', borderRadius: 8, padding: '7px 13px', fontWeight: 700 }}>
+                  {pass ? 'Approved Inspection Photos' : 'Failed Inspection Photos'}
+                </div>
+                {secs.length ? secs.map(sec => (
+                  <div key={sec.title} style={{ marginTop: 10 }}>
+                    <h4 style={{ margin: '4px 0', color: 'var(--navy)' }}>{sec.title}</h4>
+                    {sec.params.map((pm, pmi) => (
+                      <div key={pmi} style={{ marginLeft: 8, marginBottom: 8 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{pm.label}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+                          {pm.photos.map((p, pi) => (
+                            <figure key={pi} style={{ margin: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                              {p.mediaUrl ? (
+                                <button onClick={() => setLightbox({ url: p.mediaUrl!, type: p.mediaType })}
+                                  style={{ width: '100%', height: 110, border: 0, background: '#EEF1F5', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {p.mediaType === 'video' ? <span style={{ fontSize: 32, color: 'var(--navy)' }}>▶</span>
+                                    : <img src={p.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                                </button>
+                              ) : <div style={{ width: '100%', height: 110, background: '#EEF1F5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>No media</div>}
+                              <figcaption style={{ fontSize: 11, color: 'var(--ink-soft)', padding: 8 }}>
+                                <b style={{ color: pass ? 'var(--pass)' : 'var(--fail)' }}>{pass ? 'PASS' : 'FAIL'}</b> · {p.pieceLabel}
+                                {p.comment && <><br />{p.comment}</>}
+                              </figcaption>
+                            </figure>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )) : <p style={{ color: 'var(--ink-soft)', marginTop: 8 }}>{pass ? 'No approved photos.' : 'No failed photos.'}</p>}
               </div>
-            </div>
-          )) : <p style={{ color: 'var(--ink-soft)' }}>No photos or videos taken.</p>}
+            )
+          })}
         </section>
       </main>
 
