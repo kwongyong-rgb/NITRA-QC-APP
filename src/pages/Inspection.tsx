@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
@@ -46,7 +46,6 @@ type ModalState =
   | { type:'pass'; itemKey:string; itemLabel:string; pieceNo:number; tab:Tab5 }
   | { type:'extra'; verdict:ItemVerdict; result:'P'|'F' }
   | { type:'preview'; url:string; mediaType?:string }
-  | { type:'assign'; slotKey:string; slotLabel:string }
   | { type:'refimg'; src:string; label:string }
   | { type:'reassign'; photo:Photo }
   | { type:'copy'; photo:Photo }
@@ -62,17 +61,6 @@ const CORRECTIVE_TEMPLATES: { label: string; text: (f: string) => string }[] = [
   { label: 'Pending customer', text: f => `Findings for: ${f} to be communicated to the customer; shipment pending customer acceptance of the noted defects.` },
   { label: 'Acceptable — load', text: () => `Findings are within acceptable limits. Container approved for loading.` },
 ]
-
-const SLOT_SUGGEST: Record<string,string[]> = {
-  batch_laser:['laser_format'],
-  wheel_front:['area_a','area_b','area_c','hat_marks','cap_color','orange_peel'],
-  wheel_back:['area_c1','area_d','area_e','mark_sae','mark_size','mark_pcd','mark_cb','mark_et','mark_nitra','rear_bore_paint'],
-  box_label:['bx_label','bx_upc','bx_proddate','bx_stick','bx_design'],
-  packing_inside:['pk_cap','pk_foam','pk_cloth','pk_hoop','pk_bag','pk_toppad','pk_sideboard','pk_fullface'],
-  pallet_full:['pl_grouped','pl_wood','pl_height','pl_straps','pl_wrap','pl_label4','pl_photo'],
-  container_empty:['ct_photo_before'],
-  container_door:['ct_labels_doors'],
-}
 
 export default function Inspection({ profile }: { profile: Profile }) {
   const { id } = useParams()
@@ -90,8 +78,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [photoFilter, setPhotoFilter] = useState<'all'|'approved'|'failed'>('all')
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
-  const slotFileRef = useRef<HTMLInputElement>(null)
-  const [slotForCapture, setSlotForCapture] = useState('')
 
   const load = useCallback(async () => {
     const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
@@ -418,22 +404,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
   })()
   const nPieces = insp?.app_sample ?? 0
 
-  // ── Photos tab grouping: pass vs fail, by parameter ──────
-  const paramGalleries = useMemo(() => {
-    const build = (pass: boolean) => {
-      const byKey: Record<string, Photo[]> = {}
-      const order: string[] = []
-      for (const p of photos) {
-        if (!p.item_key) continue                 // skip required-shot slot photos (shown above)
-        if (!!p.is_pass_photo !== pass) continue
-        if (!byKey[p.item_key]) { byKey[p.item_key] = []; order.push(p.item_key) }
-        byKey[p.item_key].push(p)
-      }
-      for (const k of order) byKey[k].sort((a, b) => a.piece_no - b.piece_no)
-      return order.map(k => ({ key: k, label: labelOf(k), photos: byKey[k] }))
-    }
-    return { approved: build(true), failed: build(false) }
-  }, [photos, labelOf])
+  // ── Photos tab: every parameter (even empty) grouped by section header ──
+  const photoSections = useMemo(() => {
+    const byKey: Record<string, Photo[]> = {}
+    for (const p of photos) { if (!p.item_key) continue; (byKey[p.item_key] ||= []).push(p) }
+    for (const k in byKey) byKey[k].sort((a, b) => (a.is_pass_photo ? 1 : 0) - (b.is_pass_photo ? 1 : 0) || a.piece_no - b.piece_no)
+    const secs: { title: string; params: { key: string; label: string; photos: Photo[] }[] }[] = []
+    for (const s of SECTIONS) secs.push({ title: bi(s.title), params: s.items.map(i => ({ key: i.key, label: bi(i.label), photos: byKey[i.key] || [] })) })
+    for (const ms of MEAS_SECTIONS) secs.push({ title: bi(ms.title), params: ms.cols.map(c => ({ key: c.key, label: bi(c.label), photos: byKey[c.key] || [] })) })
+    return secs
+  }, [photos, bi])
 
   // Keep all hooks above these early returns. React error #310 can happen if a hook is skipped on the loading render.
   if (loadErr) return (
@@ -592,41 +572,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {/* ── PHOTOS TAB ── */}
       {tab==='photos' && (
         <div className="card">
-          <h2>{t('requiredShots')}</h2>
-          <input ref={slotFileRef} type="file" accept="image/*,video/*" capture="environment" hidden
-            onChange={async e => {
-              const f = e.target.files?.[0]
-              if (f && slotForCapture && insp) {
-                const isVideo = f.type.startsWith('video/')
-                const path = `${crypto.randomUUID()}.${isVideo?'mp4':'jpg'}`
-                const { error } = await supabase.storage.from('qc-photos').upload(path, f, { contentType:f.type })
-                if (!error) { await supabase.from('photos').insert({ inspection_id:insp.id, storage_path:path, is_pass_photo:true, checklist_key:slotForCapture, item_key:'', piece_no:0, comment:'', media_type:isVideo?'video':'photo' }); load() }
-              }
-              e.currentTarget.value=''
-            }} />
-          {PHOTO_SLOTS.map(slot => {
-            const slotPhotos = photos.filter(p => p.checklist_key===slot.key)
-            return (
-              <div key={slot.key} style={{ padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
-                <div className="row" style={{ gap:10 }}>
-                  <div style={{ flex:1, fontWeight:600 }}>{bi(slot.label)} {slotPhotos.length>0&&<span style={{ color:'var(--pass)' }}>✓ {slotPhotos.length}</span>}</div>
-                  {editable && (
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button className="btn ghost" style={{ minHeight:38, padding:'6px 12px', fontSize:13 }} onClick={() => { setSlotForCapture(slot.key); slotFileRef.current?.click() }}>📷 {t('take')}</button>
-                      <button className="btn ghost" style={{ minHeight:38, padding:'6px 12px', fontSize:13 }} onClick={() => setModal({ type:'assign', slotKey:slot.key, slotLabel:bi(slot.label) })}>🔗 {t('assign')}</button>
-                    </div>
-                  )}
-                </div>
-                {slotPhotos.length>0 && <div style={{ display:'flex', gap:8, marginTop:8, flexWrap:'wrap' }}>
-                  {slotPhotos.map(p => photoUrls[p.storage_path]&&<MediaThumb key={p.id} path={p.storage_path} type={p.media_type} url={photoUrls[p.storage_path]} onClick={() => setModal({ type:'preview', url:photoUrls[p.storage_path], mediaType:p.media_type })} />)}
-                </div>}
-              </div>
-            )
-          })}
-
-          {/* Photo gallery: Approved / Failed, grouped by parameter */}
-          <h2 style={{ marginTop:20, marginBottom:10 }}>{t('allPhotos')} ({photos.filter(p=>p.item_key).length})</h2>
-          <div style={{ display:'flex', gap:6, marginBottom:12 }}>
+          <h2 style={{ marginBottom:10 }}>{t('allPhotos')} ({photos.filter(p=>p.item_key).length})</h2>
+          <p className="muted" style={{ marginTop:0, fontSize:13 }}>
+            Every parameter is listed below — even empty ones — so you can fill a blank parameter by tapping ↻ Reassign or ⧉ Copy on a photo elsewhere and choosing it as the target.
+          </p>
+          <div style={{ display:'flex', gap:6, margin:'10px 0 14px' }}>
             {([['all','All'],['approved','Approved'],['failed','Failed']] as const).map(([f,lbl]) => (
               <button key={f} className="btn ghost"
                 style={{ minHeight:36, padding:'5px 16px', fontSize:13, ...(photoFilter===f?{ background:'var(--navy)', color:'#fff', borderColor:'var(--navy)' }:{}) }}
@@ -634,48 +584,46 @@ export default function Inspection({ profile }: { profile: Profile }) {
             ))}
           </div>
 
-          {(['approved','failed'] as const).filter(sec => photoFilter==='all'||photoFilter===sec).map(sec => {
-            const groups = sec==='approved' ? paramGalleries.approved : paramGalleries.failed
-            const pass = sec==='approved'
-            return (
-              <div key={sec} style={{ marginBottom:18 }}>
-                <div style={{ background: pass?'var(--pass)':'var(--fail)', color:'#fff', borderRadius:8, padding:'8px 14px', fontWeight:700, fontFamily:'var(--display)' }}>
-                  {pass?'✓ Approved Inspection Photos':'✗ Failed Inspection Photos'}
-                </div>
-                {groups.length>0 ? groups.map(g => (
-                  <div key={g.key} style={{ marginLeft:6, marginTop:12 }}>
-                    <div style={{ fontWeight:600, color:'var(--navy)', marginBottom:8, fontSize:14 }}>{g.label}</div>
-                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                      {g.photos.map(p => {
-                        const url = photoUrls[p.storage_path]
-                        return (
-                          <div key={p.id} style={{ position:'relative' }}>
-                            <div style={{ border:`2px solid ${p.is_pass_photo?'var(--pass)':'var(--fail)'}`, borderRadius:10, overflow:'hidden', cursor:'pointer' }}
-                              onClick={() => url && setModal({ type:'preview', url, mediaType:p.media_type })}>
-                              <MediaThumb path={p.storage_path} type={p.media_type} url={url||''} />
-                              <div style={{ padding:'3px 6px', background:p.is_pass_photo?'var(--pass-bg)':'var(--fail-bg)', fontSize:10 }}>
-                                <b style={{ color:p.is_pass_photo?'var(--pass)':'var(--fail)' }}>{p.is_pass_photo?'✓P':'✗F'}</b>
-                                {p.piece_no>0&&<> · pc{p.piece_no}</>}
+          {photoSections.map(sec => (
+            <div key={sec.title} style={{ marginBottom:16 }}>
+              <div style={{ background:'var(--navy)', color:'#fff', borderRadius:8, padding:'9px 14px', fontWeight:700, fontFamily:'var(--display)' }}>{sec.title}</div>
+              {sec.params.map(param => {
+                const visible = param.photos.filter(p => photoFilter==='all' ? true : photoFilter==='approved' ? p.is_pass_photo : !p.is_pass_photo)
+                return (
+                  <div key={param.key} style={{ marginLeft:6, marginTop:12, paddingBottom:10, borderBottom:'1px solid var(--line)' }}>
+                    <div style={{ fontWeight:600, color:'var(--navy)', marginBottom:8, fontSize:14 }}>{param.label}</div>
+                    {visible.length>0 ? (
+                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                        {visible.map(p => {
+                          const url = photoUrls[p.storage_path]
+                          return (
+                            <div key={p.id} style={{ position:'relative' }}>
+                              <div style={{ border:`2px solid ${p.is_pass_photo?'var(--pass)':'var(--fail)'}`, borderRadius:10, overflow:'hidden', cursor:'pointer' }}
+                                onClick={() => url && setModal({ type:'preview', url, mediaType:p.media_type })}>
+                                <MediaThumb path={p.storage_path} type={p.media_type} url={url||''} />
+                                <div style={{ padding:'3px 6px', background:p.is_pass_photo?'var(--pass-bg)':'var(--fail-bg)', fontSize:10 }}>
+                                  <b style={{ color:p.is_pass_photo?'var(--pass)':'var(--fail)' }}>{p.is_pass_photo?'✓P':'✗F'}</b>
+                                  {p.piece_no>0&&<> · pc{p.piece_no}</>}
+                                </div>
                               </div>
+                              {editable && (
+                                <div style={{ position:'absolute', top:4, right:4, display:'flex', gap:4 }}>
+                                  <button title="Reassign to another parameter" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
+                                    onClick={() => setModal({ type:'reassign', photo:p })}>↻</button>
+                                  <button title="Copy to other parameters" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
+                                    onClick={() => setModal({ type:'copy', photo:p })}>⧉</button>
+                                </div>
+                              )}
                             </div>
-                            {editable && (
-                              <div style={{ position:'absolute', top:4, right:4, display:'flex', gap:4 }}>
-                                <button title="Reassign to another parameter" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
-                                  onClick={() => setModal({ type:'reassign', photo:p })}>↻</button>
-                                <button title="Copy to other parameters" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
-                                  onClick={() => setModal({ type:'copy', photo:p })}>⧉</button>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
+                          )
+                        })}
+                      </div>
+                    ) : <span className="muted" style={{ fontSize:12 }}>— no photos —</span>}
                   </div>
-                )) : <p className="muted" style={{ marginTop:10 }}>{pass?'No approved photos.':'No failed photos.'}</p>}
-              </div>
-            )
-          })}
-          {photos.filter(p=>p.item_key).length===0 && <p className="muted">{t('noPhotoYet')}</p>}
+                )
+              })}
+            </div>
+          ))}
         </div>
       )}
 
@@ -860,29 +808,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
               <button className="btn ghost" style={{ minHeight:36, padding:'4px 12px' }} onClick={() => setModal(null)}>{t('close')}</button>
             </div>
             <img src={modal.src} style={{ width:'100%', borderRadius:8, border:'1px solid var(--line)' }} />
-          </div>
-        </div>
-      )}
-      {modal?.type==='assign' && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <h2 style={{ marginBottom:10 }}>🔗 {t('assign')} → {modal.slotLabel}</h2>
-            <p className="muted" style={{ marginBottom:12 }}>Tap a photo/video to assign it. Suggested matches highlighted.</p>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(110px, 1fr))', gap:10 }}>
-              {[...photos].sort((a,b) => { const sug=SLOT_SUGGEST[modal.slotKey]||[]; return (sug.includes(b.item_key)?1:0)-(sug.includes(a.item_key)?1:0) }).map(p => {
-                const suggested=(SLOT_SUGGEST[modal.slotKey]||[]).includes(p.item_key)
-                return (
-                  <div key={p.id} style={{ position:'relative', cursor:'pointer', borderRadius:8, overflow:'hidden', border:suggested?'3px solid var(--amber)':'1px solid var(--line)' }}
-                    onClick={async () => { const { error }=await supabase.from('photos').update({ checklist_key:modal.slotKey }).eq('id',p.id); if(error){ alert('Assign failed: '+error.message); return } setModal(null); load() }}>
-                    <MediaThumb path={p.storage_path} type={p.media_type} url={photoUrls[p.storage_path]||''} />
-                    {suggested && <div style={{ position:'absolute', top:4, left:4, background:'var(--amber)', color:'#fff', borderRadius:6, fontSize:10, fontWeight:700, padding:'2px 6px' }}>✓</div>}
-                    <div style={{ fontSize:10, padding:'3px 6px', background:'#fff' }}>{p.is_pass_photo?'✓P':'✗F'}{p.piece_no?` · pc${p.piece_no}`:''}</div>
-                  </div>
-                )
-              })}
-              {photos.length===0 && <p className="muted">{t('noPhotoYet')}</p>}
-            </div>
-            <button className="btn ghost" style={{ width:'100%', marginTop:14 }} onClick={() => setModal(null)}>{t('close')}</button>
           </div>
         </div>
       )}
