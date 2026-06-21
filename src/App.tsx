@@ -12,6 +12,7 @@ import Skus from './pages/Skus'
 import RefLibrary from './pages/RefLibrary'
 import ReportPage from './pages/ReportPage'
 import ContainerLoading from './pages/ContainerLoading'
+import PoHub from './pages/PoHub'
 import ErrorBoundary from './components/ErrorBoundary'
 
 export interface Profile { id: string; full_name: string; role: 'inspector' | 'approver' }
@@ -69,14 +70,14 @@ export default function App() {
             </>
           )}
           <Link to="/reference"><button>{t('refLibrary')}</button></Link>
-          <Link to="/container/new"><button>＋ Container (beta)</button></Link>
           <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '中文' : 'EN'}</button>
           <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>{t('signOut')}</button>
         </nav>
       </header>
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<Home profile={profile} />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/po/:poNo" element={<PoHub profile={profile} />} />
           <Route path="/new" element={<NewInspection profile={profile} />} />
           <Route path="/inspection/:id" element={<Inspection profile={profile} />} />
           <Route path="/container/:id" element={<ContainerLoading profile={profile} />} />

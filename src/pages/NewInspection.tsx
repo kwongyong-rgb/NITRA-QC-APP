@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { sampleSizes, type SamplingSettings } from '../lib/rules'
@@ -9,11 +9,13 @@ import type { Profile } from '../App'
 export default function NewInspection({ profile }: { profile: Profile }) {
   const { t } = useI18n()
   const nav = useNavigate()
+  const [params] = useSearchParams()
+  const presetPo = params.get('po') || ''
   const [skus, setSkus] = useState<Sku[]>([])
   const [samp, setSamp] = useState<SamplingSettings | null>(null)
   const [search, setSearch] = useState('')
   const [partNo, setPartNo] = useState('')
-  const [po, setPo] = useState('')
+  const [po, setPo] = useState(presetPo)
   const [batch, setBatch] = useState('')
   const [lot, setLot] = useState(100)
   const [busy, setBusy] = useState(false)
@@ -101,7 +103,7 @@ export default function NewInspection({ profile }: { profile: Profile }) {
             </label>
           </div>
           <label className="fld"><span>{t('poNo')}</span>
-            <input className="txt" value={po} onChange={e => setPo(e.target.value)} />
+            <input className="txt" value={po} disabled={!!presetPo} onChange={e => setPo(e.target.value)} />
           </label>
           <label className="fld"><span>{t('batch')}</span>
             <input className="txt" value={batch} onChange={e => setBatch(e.target.value)} />

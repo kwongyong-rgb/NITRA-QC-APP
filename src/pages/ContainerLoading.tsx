@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { PALLET_PACKING_ITEMS, CONTAINER_PHOTO_ITEMS } from '../lib/standard'
@@ -20,6 +20,7 @@ interface Photo { id: string; storage_path: string; media_type: string; item_key
 export default function ContainerLoading({ profile }: { profile: Profile }) {
   const { id } = useParams()
   const nav = useNavigate()
+  const [params] = useSearchParams()
   const { bi } = useI18n()
   const [cl, setCl] = useState<CL | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -48,7 +49,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       const { data: skus } = await supabase.from('skus').select('part_no').eq('active', true).order('part_no')
       setSkuList((skus || []).map((s: { part_no: string }) => s.part_no))
       if (id === 'new') {
-        const { data, error } = await supabase.from('container_loadings').insert({ inspector_id: profile.id }).select('id').single()
+        const { data, error } = await supabase.from('container_loadings').insert({ inspector_id: profile.id, po_no: params.get('po') || '' }).select('id').single()
         if (error) { setErr(error.message); return }
         if (data) nav(`/container/${data.id}`, { replace: true })
         return

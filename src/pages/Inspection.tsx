@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
-import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, PALLET_PACKING_ITEMS, CONTAINER_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
+import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb } from '../components/PhotoModal'
@@ -53,7 +53,7 @@ type ModalState =
   | { type:'na_setup' }
   | null
 
-const TABS = ['form','measure','photos','pallet','summary','100pct'] as const
+const TABS = ['form','measure','photos','summary','100pct'] as const
 
 const CORRECTIVE_TEMPLATES: { label: string; text: (f: string) => string }[] = [
   { label: 'Rework failed param + load', text: f => `Factory to rework wheels with failed parameter(s): ${f} (100% inspection conducted), and load after rework.` },
@@ -182,21 +182,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
 
   // Per-parameter undo for the pallet/container tab (reverts the latest matching action)
-  const undoParam = async (matches: (e: HistoryEntry) => boolean) => {
-    if (!insp) return
-    let idx = -1
-    for (let i = history.length - 1; i >= 0; i--) { if (matches(history[i])) { idx = i; break } }
-    if (idx < 0) return
-    const e = history[idx]
-    setHistory(h => h.filter((_, i) => i !== idx))
-    const pd = { ...insp.pallet_data }
-    if (e.type === 'set_pallet') { if (e.prev === undefined) delete pd[e.key]; else pd[e.key] = e.prev }
-    else if (e.type === 'pallet_all' && e.prevMap) { for (const [k, v] of Object.entries(e.prevMap)) { if (v === undefined) delete pd[k]; else pd[k] = v } }
-    setInsp({ ...insp, pallet_data: pd })
-    await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
-    load()
-  }
-
   const undoLast = async () => {
     if (!insp || history.length===0) return
     const last = history[history.length-1]
@@ -503,8 +488,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {/* Tabs */}
       <div className="tabs">
         {TABS.filter(k => k!=='100pct'||triggeredItems.length>0).map(k => {
-          const label = k==='form'?t('tabVisual'):k==='measure'?t('tabTechnical'):k==='photos'?`${t('tabPhotos')} (${photos.length})`:k==='pallet'?t('tabPallet'):k==='100pct'?t('tab100pct'):t('tabSummary')
-          const icon = k==='form'?'👁':k==='measure'?'📏':k==='photos'?'📷':k==='pallet'?'📦':k==='100pct'?'⛔':'📋'
+          const label = k==='form'?t('tabVisual'):k==='measure'?t('tabTechnical'):k==='photos'?`${t('tabPhotos')} (${photos.length})`:k==='100pct'?t('tab100pct'):t('tabSummary')
+          const icon = k==='form'?'👁':k==='measure'?'📏':k==='photos'?'📷':k==='100pct'?'⛔':'📋'
           return (
             <button key={k} className={`${tab===k?'on':''}${k==='100pct'?' crit':''}`} onClick={() => setTab(k)}>
               <span className="tab-ico" aria-hidden="true">{icon}</span>
@@ -666,139 +651,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
               })}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* ── PALLET TAB ── */}
-      {tab==='pallet' && (
-        <div className="card">
-          <h2>{t('tabPallet')}</h2>
-          <label className="fld" style={{ maxWidth:240 }}><span>{t('palletCount')} (1–22)</span>
-            <input className="txt" type="number" min={1} max={22} disabled={!editable}
-              value={insp.form_data.pallet_count ?? ''}
-              onChange={async e => { const n=Math.max(0,Math.min(22,Math.floor(+e.target.value||0))); await saveFd({ ...insp.form_data, pallet_count:n }) }} />
-          </label>
-
-          {(() => {
-            const palletCount = insp.form_data.pallet_count ?? 0
-            if (palletCount < 1) return <p className="muted" style={{ marginTop:12 }}>Enter the number of pallets to inspect.</p>
-            const pallets = Array.from({ length: palletCount }, (_, i) => i + 1)
-            const setCell = async (key: string, label: string, n: number, v: PFNA) => {
-              const fk = `${key}:${n}`; const prev = insp.pallet_data[fk]; const nv = prev===v ? undefined : v
-              setHistory(h => [...h, { type:'set_pallet', key:fk, prev }])
-              const pd = { ...insp.pallet_data }; if (nv===undefined) delete pd[fk]; else pd[fk]=nv
-              setInsp({ ...insp, pallet_data: pd })
-              await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
-              if (nv==='F' && prev!=='F') await ensureDefect(key, label, n, 'pallet')
-              if (prev==='F' && nv!=='F') await removeDefect(key, n, 'pallet')
-              load()
-            }
-            const setAll = async (key: string, v: PFNA) => {
-              const pd = { ...insp.pallet_data }; const prevMap: Record<string, PFNA> = {}
-              for (const n of pallets) { const fk=`${key}:${n}`; prevMap[fk]=pd[fk]; pd[fk]=v }
-              setHistory(h => [...h, { type:'pallet_all', key, prev:undefined, prevMap }])
-              setInsp({ ...insp, pallet_data: pd })
-              await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
-              load()
-            }
-            return PALLET_PACKING_ITEMS.map(item => (
-              <div key={item.key} style={{ padding:'12px 0', borderBottom:'1px solid var(--line)' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
-                  <span style={{ fontWeight:600, fontSize:15 }}>{bi(item.label)}</span>
-                  <RefIcon itemKey={item.key} label={bi(item.label)} />
-                  <span style={{ flex:1 }} />
-                  {editable && (() => {
-                    const pred = (e: HistoryEntry) => (e.type==='set_pallet' && e.key.startsWith(`${item.key}:`)) || (e.type==='pallet_all' && e.key===item.key)
-                    const c = history.filter(pred).length
-                    return c>0 ? <button className="btn ghost" style={{ minHeight:30, padding:'2px 10px', fontSize:12, borderColor:'var(--amber)', color:'var(--amber)' }} onClick={() => undoParam(pred)}>↶ {t('undo')} ({c})</button> : null
-                  })()}
-                </div>
-                {editable && (
-                  <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
-                    <button className="btn ghost" style={{ minHeight:32, padding:'3px 12px', fontSize:12, color:'var(--pass)', borderColor:'var(--pass)' }} onClick={() => setAll(item.key,'P')}>All P</button>
-                    <button className="btn ghost" style={{ minHeight:32, padding:'3px 12px', fontSize:12, color:'var(--fail)', borderColor:'var(--fail)' }} onClick={() => setAll(item.key,'F')}>All F</button>
-                    <button className="btn ghost" style={{ minHeight:32, padding:'3px 12px', fontSize:12 }} onClick={() => setAll(item.key,'NA')}>All NA</button>
-                  </div>
-                )}
-                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                  {pallets.map(n => {
-                    const val = insp.pallet_data[`${item.key}:${n}`]
-                    const ph = photos.filter(p => p.item_key===item.key && p.piece_no===n)
-                    return (
-                      <div key={n} style={{ width:86, border:`1.5px solid ${val==='P'?'var(--pass)':val==='F'?'var(--fail)':'var(--line)'}`, borderRadius:8, overflow:'hidden',
-                        background: val==='P'?'var(--pass-bg)':val==='F'?'var(--fail-bg)':'#fff' }}>
-                        <div style={{ fontSize:11, fontWeight:700, padding:'3px 0', textAlign:'center', borderBottom:'1px solid var(--line)', background:'rgba(0,0,0,.04)', color:'var(--navy)' }}>Pallet {n}</div>
-                        <div style={{ display:'flex' }}>
-                          {(['P','F','NA'] as const).map(v => (
-                            <button key={v} disabled={!editable}
-                              style={{ flex:1, border:'none', borderRight: v!=='NA'?'1px solid var(--line)':'none', minHeight:34,
-                                background: val===v ? (v==='P'?'var(--pass)':v==='F'?'var(--fail)':'var(--ink-soft)') : 'transparent',
-                                color: val===v ? '#fff' : (v==='P'?'var(--pass)':v==='F'?'var(--fail)':'var(--ink-soft)'),
-                                fontWeight:700, fontSize:11, cursor:'pointer' }}
-                              onClick={() => setCell(item.key, bi(item.label), n, v)}>{v}</button>
-                          ))}
-                        </div>
-                        {editable && (
-                          <button style={{ width:'100%', border:'none', borderTop:'1px solid var(--line)', minHeight:28, background:'#fff', fontSize:11, cursor:'pointer', color: ph.length>0?'var(--navy)':'var(--ink-soft)' }}
-                            onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:n, tab:'pallet' })}>
-                            {ph.length>0?`📷 ${ph.length}`:'📷 +'}
-                          </button>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ))
-          })()}
-
-          <div style={{ marginTop:18 }}>
-            <div style={{ background:'var(--amber)', color:'#fff', borderRadius:8, padding:'8px 12px', fontWeight:700, fontFamily:'var(--display)', fontSize:13 }}>
-              Container Loading — moving to PO level in a later update
-            </div>
-            {CONTAINER_ITEMS.map(item => {
-              const val = insp.pallet_data[item.key]
-              const ph = photos.filter(p => p.item_key===item.key && p.piece_no===0)
-              return (
-                <div key={item.key} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)' }}>
-                  <div className="row" style={{ gap:10 }}>
-                    <div style={{ flex:1, display:'flex', alignItems:'center', gap:4 }}>
-                      <span style={{ fontWeight:600, fontSize:15 }}>{bi(item.label)}</span>
-                      <RefIcon itemKey={item.key} label={bi(item.label)} />
-                    </div>
-                    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                      <div className="pfna">
-                        {(['P','F','NA'] as const).map(v => (
-                          <button key={v} disabled={!editable}
-                            className={`${v==='P'?'p':v==='F'?'f':'n'} ${val===v?'on':''}`}
-                            onClick={async () => {
-                              const prev=val; const newVal=val===v?undefined:v
-                              setHistory(h => [...h, { type:'set_pallet', key:item.key, prev }])
-                              const pd={...insp.pallet_data}; if(newVal===undefined) delete pd[item.key]; else pd[item.key]=newVal
-                              setInsp({...insp, pallet_data:pd})
-                              await supabase.from('inspections').update({ pallet_data:pd, updated_at:new Date().toISOString() }).eq('id', insp.id)
-                              if (newVal==='F' && prev!=='F') await ensureDefect(item.key, bi(item.label), 0, 'pallet')
-                              if (prev==='F' && newVal!=='F') await removeDefect(item.key, 0, 'pallet')
-                              load()
-                            }}>{v}</button>
-                        ))}
-                      </div>
-                      {editable && (
-                        <button className={`plus-btn ${ph.length>0?(val==='P'?'has-photo':'has-fail-photo'):''}`}
-                          onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:0, tab:'pallet' })}>
-                          {ph.length>0?`📷 ${ph.length}`:'📷+'}
-                        </button>
-                      )}
-                      {editable && history.some(e=>e.type==='set_pallet'&&e.key===item.key) && (
-                        <button className="btn ghost" style={{ minHeight:38, padding:'4px 10px', fontSize:13, borderColor:'var(--amber)', color:'var(--amber)' }}
-                          title={t('undo')} onClick={() => undoParam(e => e.type==='set_pallet'&&e.key===item.key)}>↶</button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
         </div>
       )}
 

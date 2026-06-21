@@ -1,0 +1,112 @@
+import { useEffect, useState, useCallback } from 'react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import type { Profile } from '../App'
+
+interface Insp { id: string; part_no: string; status: string; updated_at: string; inspector_id: string }
+interface Cont { id: string; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string }
+
+function fmt(dt: string | null) {
+  if (!dt) return '—'
+  const d = new Date(dt)
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+export default function PoHub({ profile }: { profile: Profile }) {
+  const { poNo } = useParams()
+  const po = decodeURIComponent(poNo || '')
+  const nav = useNavigate()
+  const [insps, setInsps] = useState<Insp[]>([])
+  const [conts, setConts] = useState<Cont[]>([])
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data: i } = await supabase.from('inspections').select('id,part_no,status,updated_at,inspector_id').eq('po_no', po).order('updated_at', { ascending: false })
+    setInsps((i as Insp[]) || [])
+    const { data: c } = await supabase.from('container_loadings').select('id,container_no,seal_no,status,insp_status,updated_at,inspector_id').eq('po_no', po).order('updated_at', { ascending: false })
+    setConts((c as Cont[]) || [])
+  }, [po])
+  useEffect(() => { load() }, [load])
+
+  const addContainer = async () => {
+    setBusy(true)
+    const { data, error } = await supabase.from('container_loadings').insert({ inspector_id: profile.id, po_no: po }).select('id').single()
+    setBusy(false)
+    if (error) { alert(error.message); return }
+    if (data) nav(`/container/${data.id}`)
+  }
+
+  const delInsp = async (r: Insp) => {
+    if (!confirm('Delete this wheel inspection? This cannot be undone.')) return
+    const { error } = await supabase.from('inspections').delete().eq('id', r.id)
+    if (error) { alert('Delete failed: ' + error.message); return }
+    load()
+  }
+  const delCont = async (c: Cont) => {
+    if (!confirm('Delete this container loading? This cannot be undone.')) return
+    const { error } = await supabase.from('container_loadings').delete().eq('id', c.id)
+    if (error) { alert('Delete failed: ' + error.message); return }
+    load()
+  }
+  const canDelInsp = (r: Insp) => profile.role === 'approver' || (r.status === 'draft' && r.inspector_id === profile.id)
+  const canDelCont = (c: Cont) => profile.role === 'approver' || (['draft', 'rejected'].includes(c.insp_status) && c.inspector_id === profile.id)
+
+  return (
+    <div className="page">
+      <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav('/')}>← All POs</button>
+
+      <div className="card">
+        <h2 style={{ marginBottom: 4 }}>PO: {po || '(No PO)'}</h2>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{insps.length} wheel inspection(s) · {conts.length} container loading(s)</p>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>Wheel inspections</h2>
+          <Link to={`/new?po=${encodeURIComponent(po)}`}><button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}>＋ Add SKU</button></Link>
+        </div>
+        {insps.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No wheel inspections yet.</p>}
+        {insps.map(r => (
+          <div key={r.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+            <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <div className="row" style={{ gap: 8 }}>
+                  <Link to={`/inspection/${r.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{r.part_no}</Link>
+                  <span className={`pill ${r.status}`}>{r.status}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Updated: {fmt(r.updated_at)}</div>
+              </div>
+              {canDelInsp(r) && <button className="btn danger" style={{ minHeight: 36, padding: '4px 10px', fontSize: 13 }} onClick={() => delInsp(r)}>🗑</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>Container loadings</h2>
+          <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} disabled={busy} onClick={addContainer}>＋ Add container</button>
+        </div>
+        {conts.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No container loadings yet.</p>}
+        {conts.map(c => (
+          <div key={c.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+            <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <div className="row" style={{ gap: 8 }}>
+                  <Link to={`/container/${c.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{c.container_no || '(no container no.)'}</Link>
+                  <span className={`pill ${c.insp_status}`}>{c.insp_status}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Seal: {c.seal_no || '—'} · Status: {c.status} · Updated: {fmt(c.updated_at)}</div>
+              </div>
+              {canDelCont(c) && <button className="btn danger" style={{ minHeight: 36, padding: '4px 10px', fontSize: 13 }} onClick={() => delCont(c)}>🗑</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <button className="btn" style={{ width: '100%' }} disabled title="Coming in the next step">Consolidated PO report (coming soon)</button>
+      </div>
+    </div>
+  )
+}
