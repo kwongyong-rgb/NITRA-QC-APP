@@ -223,3 +223,25 @@ export const CONTAINER_ITEMS: { key: string; label: Bi }[] = [
 ]
 
 export const PALLET_ITEMS: { key: string; label: Bi }[] = [...PALLET_PACKING_ITEMS, ...CONTAINER_ITEMS]
+
+// Container Loading Inspection Photos — photo-only (no P/F/NA); each requires a photo.
+export const CONTAINER_PHOTO_ITEMS: { key: string; label: Bi; instruction: Bi }[] = [
+  { key: 'cc_exterior', label: { en: 'Container Condition: Exterior', zh: '集装箱状况：外部' },
+    instruction: { en: 'Photograph all four sides of the container, including any damaged areas, before loading.', zh: '装柜前拍摄集装箱四面，包括任何破损部位。' } },
+  { key: 'cc_interior', label: { en: 'Container Condition: Interior', zh: '集装箱状况：内部' },
+    instruction: { en: 'Photograph the container interior, including any damaged areas, before loading.', zh: '装柜前拍摄集装箱内部，包括任何破损部位。' } },
+  { key: 'cl_empty', label: { en: 'Container Loading: Empty', zh: '装柜：空柜' },
+    instruction: { en: 'Photo of the empty container at the start of loading.', zh: '装柜开始时的空柜照片。' } },
+  { key: 'cl_half', label: { en: 'Container Loading: Half Full', zh: '装柜：半满' },
+    instruction: { en: 'Photo of the container when roughly half loaded.', zh: '集装箱约装载一半时的照片。' } },
+  { key: 'cl_full', label: { en: 'Container Loading: Full', zh: '装柜：满柜' },
+    instruction: { en: 'Photo of the container when fully loaded.', zh: '集装箱完全装满时的照片。' } },
+  { key: 'cl_by_size', label: { en: 'Wheels loaded by size & part number', zh: '按尺寸与产品编号装载' },
+    instruction: { en: 'Show that wheels are loaded grouped by size and part number.', zh: '显示轮毂按尺寸和产品编号分组装载。' } },
+  { key: 'cl_box_labels', label: { en: 'Box labels & hand-holes facing container door', zh: '箱标签与提手孔朝向柜门' },
+    instruction: { en: 'Box labels and box hand-holes facing the container door.', zh: '箱标签与箱提手孔朝向集装箱门。' } },
+  { key: 'cl_spares', label: { en: 'Spare boxes & caps at front', zh: '备用箱与盖置于柜门口' },
+    instruction: { en: 'Spare boxes and caps placed at the container door (front).', zh: '备用箱与轮毂盖放置于集装箱门口。' } },
+  { key: 'cl_net', label: { en: 'Protective net after loading', zh: '装载后防护网' },
+    instruction: { en: 'Protective net fitted across the doorway after loading.', zh: '装载后在门口安装防护网。' } },
+]

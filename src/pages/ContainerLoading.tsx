@@ -2,14 +2,14 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
-import { PALLET_PACKING_ITEMS, CONTAINER_ITEMS } from '../lib/standard'
+import { PALLET_PACKING_ITEMS, CONTAINER_PHOTO_ITEMS } from '../lib/standard'
 import { MediaCapture, MediaThumb } from '../components/PhotoModal'
 import type { Profile } from '../App'
 
 type PFNA = 'P' | 'F' | 'NA' | undefined
 interface Content { part_no: string; qty: number }
 interface PalletData { contents: Content[]; checks: Record<string, PFNA> }
-interface CLData { pallet_count?: number; pallets?: Record<string, PalletData>; container_checks?: Record<string, PFNA> }
+interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number; pallets?: Record<string, PalletData> }
 interface CL {
   id: string; po_no: string; container_no: string; seal_no: string
   status: string; insp_status: string; inspector_id: string
@@ -26,6 +26,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [skuList, setSkuList] = useState<string[]>([])
   const [capture, setCapture] = useState<{ itemKey: string; pieceNo: number; isPass: boolean } | null>(null)
+  const [history, setHistory] = useState<{ palletNo: number; prevChecks: Record<string, PFNA> }[]>([])
   const [err, setErr] = useState('')
 
   const loadPhotos = useCallback(async (clId: string) => {
@@ -37,7 +38,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       const { data: signed } = await supabase.storage.from('qc-photos').createSignedUrls(paths, 60 * 60 * 6)
       const m: Record<string, string> = {}
       for (const s of signed || []) if (s.path && s.signedUrl) m[s.path] = s.signedUrl
-      setUrls(m)
+      setUrls(prev => ({ ...prev, ...m }))
     }
   }, [])
 
@@ -45,7 +46,6 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     (async () => {
       const { data: skus } = await supabase.from('skus').select('part_no').eq('active', true).order('part_no')
       setSkuList((skus || []).map((s: { part_no: string }) => s.part_no))
-
       if (id === 'new') {
         const { data, error } = await supabase.from('container_loadings').insert({ inspector_id: profile.id }).select('id').single()
         if (error) { setErr(error.message); return }
@@ -63,40 +63,54 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   if (!cl) return <div className="page" style={{ paddingTop: 24 }}><p className="muted">Loading…</p></div>
 
   const editable = ['draft', 'rejected'].includes(cl.insp_status) || profile.role === 'approver'
+  const loadingType = cl.data.loading_type || 'pallet'
   const palletCount = cl.data.pallet_count ?? 0
   const pallets = Array.from({ length: palletCount }, (_, i) => i + 1)
 
   const patch = async (fields: Partial<CL>) => {
-    const next = { ...cl, ...fields }
-    setCl(next)
+    const next = { ...cl, ...fields }; setCl(next)
     await supabase.from('container_loadings').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', cl.id)
   }
   const setData = (d: CLData) => patch({ data: d })
 
+  const palletOf = (n: number): PalletData => cl.data.pallets?.[n] || { contents: [], checks: {} }
+  const snapshot = (n: number) => setHistory(h => [...h, { palletNo: n, prevChecks: { ...palletOf(n).checks } }])
+
   const setPalletCheck = (n: number, key: string, v: PFNA) => {
-    const pallets = { ...(cl.data.pallets || {}) }
-    const pd: PalletData = pallets[n] || { contents: [], checks: {} }
+    snapshot(n)
+    const pallets = { ...(cl.data.pallets || {}) }; const pd = palletOf(n)
     const checks = { ...pd.checks }; if (checks[key] === v) delete checks[key]; else checks[key] = v
-    pallets[n] = { ...pd, checks }
+    pallets[n] = { ...pd, checks }; setData({ ...cl.data, pallets })
+  }
+  const setAllPallet = (n: number, v: PFNA) => {
+    snapshot(n)
+    const pallets = { ...(cl.data.pallets || {}) }; const pd = palletOf(n)
+    const checks = { ...pd.checks }; for (const it of PALLET_PACKING_ITEMS) checks[it.key] = v
+    pallets[n] = { ...pd, checks }; setData({ ...cl.data, pallets })
+  }
+  const undoPallet = (n: number) => {
+    let idx = -1; for (let i = history.length - 1; i >= 0; i--) if (history[i].palletNo === n) { idx = i; break }
+    if (idx < 0) return
+    const entry = history[idx]; setHistory(h => h.filter((_, i) => i !== idx))
+    const pallets = { ...(cl.data.pallets || {}) }; pallets[n] = { ...palletOf(n), checks: entry.prevChecks }
     setData({ ...cl.data, pallets })
   }
-  const setContainerCheck = (key: string, v: PFNA) => {
-    const cc = { ...(cl.data.container_checks || {}) }; if (cc[key] === v) delete cc[key]; else cc[key] = v
-    setData({ ...cl.data, container_checks: cc })
-  }
   const updateContents = (n: number, contents: Content[]) => {
-    const pallets = { ...(cl.data.pallets || {}) }
-    pallets[n] = { ...(pallets[n] || { contents: [], checks: {} }), contents }
+    const pallets = { ...(cl.data.pallets || {}) }; pallets[n] = { ...palletOf(n), contents }
     setData({ ...cl.data, pallets })
   }
 
+  const insertPhoto = async (itemKey: string, pieceNo: number, isPass: boolean, path: string, type: 'photo' | 'video') => {
+    const { error } = await supabase.from('photos').insert({
+      container_loading_id: cl.id, storage_path: path, media_type: type, item_key: itemKey, piece_no: pieceNo, is_pass_photo: isPass, comment: '',
+    }).select('id')
+    if (error) { alert('Could not save photo: ' + error.message + '\n\nIf this mentions a missing column or policy, run migration 07 in the Supabase SQL Editor.'); return false }
+    return true
+  }
   const onCaptured = async (path: string, type: 'photo' | 'video') => {
     if (!capture) return
-    await supabase.from('photos').insert({
-      container_loading_id: cl.id, storage_path: path, media_type: type,
-      item_key: capture.itemKey, piece_no: capture.pieceNo, is_pass_photo: capture.isPass, comment: '',
-    })
-    setCapture(null); loadPhotos(cl.id)
+    const ok = await insertPhoto(capture.itemKey, capture.pieceNo, capture.isPass, path, type)
+    setCapture(null); if (ok) loadPhotos(cl.id)
   }
   const deletePhoto = async (p: Photo) => {
     if (!confirm('Delete this photo/video?')) return
@@ -107,28 +121,35 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   }
   const photosFor = (itemKey: string, pieceNo: number) => photos.filter(p => p.item_key === itemKey && p.piece_no === pieceNo)
 
-  // Rolled-up SKU totals across all pallets
-  const totals: Record<string, number> = {}
-  for (const n of pallets) for (const c of (cl.data.pallets?.[n]?.contents || [])) if (c.part_no) totals[c.part_no] = (totals[c.part_no] || 0) + (c.qty || 0)
+  const PhotoStrip = ({ itemKey, pieceNo }: { itemKey: string; pieceNo: number }) => {
+    const ph = photosFor(itemKey, pieceNo); if (!ph.length) return null
+    return (
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+        {ph.map(p => (
+          <div key={p.id} style={{ position: 'relative' }}>
+            <MediaThumb type={p.media_type} url={urls[p.storage_path] || ''} onClick={() => urls[p.storage_path] && window.open(urls[p.storage_path], '_blank')} />
+            {editable && <button onClick={() => deletePhoto(p)} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(204,17,34,.9)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '1px 5px', cursor: 'pointer' }}>🗑</button>}
+          </div>
+        ))}
+      </div>
+    )
+  }
+  const CamBtn = ({ itemKey, pieceNo, isPass = true, label = '📷 +' }: { itemKey: string; pieceNo: number; isPass?: boolean; label?: string }) =>
+    editable ? <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={() => setCapture({ itemKey, pieceNo, isPass })}>{label}</button> : null
+
+  // Loaded contents per pallet
+  const palletContents = pallets.map(n => ({ n, contents: (palletOf(n).contents || []).filter(c => c.part_no) })).filter(x => x.contents.length)
 
   const submit = async () => {
-    if (!cl.container_no.trim()) { alert('Enter a container number first.'); return }
+    const missing: string[] = []
+    if (!cl.container_no.trim()) missing.push('Container number')
+    for (const item of CONTAINER_PHOTO_ITEMS) if (photosFor(item.key, 0).length === 0) missing.push(bi(item.label) + ' (photo)')
+    if (loadingType === 'pallet') for (const n of pallets) if (photosFor('pallet_label', n).length === 0) missing.push(`Pallet ${n} — label photo`)
+    if (missing.length) { alert('Cannot submit — these are required first:\n\n• ' + missing.join('\n• ')); return }
     await patch({ insp_status: 'submitted' })
     await supabase.from('container_loadings').update({ submitted_at: new Date().toISOString() }).eq('id', cl.id)
     alert('Submitted for approval.')
   }
-
-  const PFNARow = ({ val, onSet, onCam, photoCount }: { val: PFNA; onSet: (v: PFNA) => void; onCam: () => void; photoCount: number }) => (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <div className="pfna">
-        {(['P', 'F', 'NA'] as const).map(v => (
-          <button key={v} disabled={!editable} className={`${v === 'P' ? 'p' : v === 'F' ? 'f' : 'n'} ${val === v ? 'on' : ''}`}
-            onClick={() => onSet(val === v ? undefined : v)}>{v}</button>
-        ))}
-      </div>
-      {editable && <button className={`plus-btn ${photoCount > 0 ? 'has-photo' : ''}`} onClick={onCam}>{photoCount > 0 ? `📷 ${photoCount}` : '📷+'}</button>}
-    </div>
-  )
 
   return (
     <div className="page" style={{ paddingTop: 16 }}>
@@ -141,92 +162,117 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
             <input className="txt" disabled={!editable} value={cl.po_no} onChange={e => patch({ po_no: e.target.value })} /></label>
           <label className="fld"><span>Status</span>
             <select className="sel" disabled={!editable} value={cl.status} onChange={e => patch({ status: e.target.value })}>
-              <option value="in_progress">In progress</option>
-              <option value="loaded">Loaded</option>
-              <option value="hold">Hold</option>
+              <option value="in_progress">In progress</option><option value="loaded">Loaded</option><option value="hold">Hold</option>
             </select></label>
-          <label className="fld"><span>Container number</span>
-            <input className="txt" disabled={!editable} value={cl.container_no} onChange={e => patch({ container_no: e.target.value })} /></label>
-          <label className="fld"><span>Seal number</span>
-            <input className="txt" disabled={!editable} value={cl.seal_no} onChange={e => patch({ seal_no: e.target.value })} /></label>
+          <label className="fld"><span>Loading type</span>
+            <select className="sel" disabled={!editable} value={loadingType} onChange={e => setData({ ...cl.data, loading_type: e.target.value as 'pallet' | 'non_pallet' })}>
+              <option value="pallet">Pallet</option><option value="non_pallet">Non-pallet</option>
+            </select></label>
+          <div />
+          <div>
+            <label className="fld"><span>Container number</span>
+              <input className="txt" disabled={!editable} value={cl.container_no} onChange={e => patch({ container_no: e.target.value })} /></label>
+            <div style={{ marginTop: 6 }}><CamBtn itemKey="container_no_photo" pieceNo={0} label="📷 Photo of container no." /><PhotoStrip itemKey="container_no_photo" pieceNo={0} /></div>
+          </div>
+          <div>
+            <label className="fld"><span>Seal number</span>
+              <input className="txt" disabled={!editable} value={cl.seal_no} onChange={e => patch({ seal_no: e.target.value })} /></label>
+            <div style={{ marginTop: 6 }}><CamBtn itemKey="seal_no_photo" pieceNo={0} label="📷 Photo of seal no." /><PhotoStrip itemKey="seal_no_photo" pieceNo={0} /></div>
+          </div>
         </div>
-        {Object.keys(totals).length > 0 && (
-          <div style={{ marginTop: 10, fontSize: 13 }}>
-            <b>Loaded contents (auto-totalled):</b> {Object.entries(totals).map(([pn, q]) => `${pn} × ${q}`).join(' · ')}
+        {palletContents.length > 0 && (
+          <div style={{ marginTop: 12, fontSize: 13 }}>
+            <b>Loaded contents:</b>
+            {palletContents.map(x => (
+              <div key={x.n} style={{ marginTop: 2 }}>Pallet {x.n}: {x.contents.map(c => `${c.part_no} × ${c.qty}`).join(', ')}</div>
+            ))}
           </div>
         )}
       </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
-        <h2>Pallet Packing</h2>
-        <label className="fld" style={{ maxWidth: 240 }}><span>Number of pallets (1–22)</span>
-          <input className="txt" type="number" min={1} max={22} disabled={!editable} value={cl.data.pallet_count ?? ''}
-            onChange={e => { const n = Math.max(0, Math.min(22, Math.floor(+e.target.value || 0))); setData({ ...cl.data, pallet_count: n }) }} /></label>
+      {loadingType === 'pallet' && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h2>Pallet Packing</h2>
+          <label className="fld" style={{ maxWidth: 240 }}><span>Number of pallets (1–22)</span>
+            <input className="txt" type="number" min={1} max={22} disabled={!editable} value={cl.data.pallet_count ?? ''}
+              onChange={e => { const n = Math.max(0, Math.min(22, Math.floor(+e.target.value || 0))); setData({ ...cl.data, pallet_count: n }) }} /></label>
 
-        {palletCount < 1 ? <p className="muted" style={{ marginTop: 12 }}>Enter the number of pallets.</p> : pallets.map(n => {
-          const pd = cl.data.pallets?.[n] || { contents: [] as Content[], checks: {} as Record<string, PFNA> }
-          const labelPhotos = photosFor('pallet_label', n)
-          return (
-            <div key={n} style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 12 }}>
-              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>Pallet {n}</div>
+          {palletCount < 1 ? <p className="muted" style={{ marginTop: 12 }}>Enter the number of pallets.</p> : pallets.map(n => {
+            const pd = palletOf(n); const labelPhotos = photosFor('pallet_label', n)
+            const undoCount = history.filter(e => e.palletNo === n).length
+            return (
+              <div key={n} style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 12 }}>
+                <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>Pallet {n}</div>
 
-              {/* Label photo */}
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Pallet label photo {labelPhotos.length === 0 && <span style={{ color: 'var(--fail)' }}>· required</span>}</div>
-                {editable && <MediaCapture label="Label" onUploaded={async (path, type) => { setCapture({ itemKey: 'pallet_label', pieceNo: n, isPass: true }); await supabase.from('photos').insert({ container_loading_id: cl.id, storage_path: path, media_type: type, item_key: 'pallet_label', piece_no: n, is_pass_photo: true, comment: '' }); setCapture(null); loadPhotos(cl.id) }} />}
-                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                  {labelPhotos.map(p => (
-                    <div key={p.id} style={{ position: 'relative' }}>
-                      <MediaThumb type={p.media_type} url={urls[p.storage_path] || ''} onClick={() => urls[p.storage_path] && window.open(urls[p.storage_path], '_blank')} />
-                      {editable && <button onClick={() => deletePhoto(p)} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(204,17,34,.85)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '1px 5px', cursor: 'pointer' }}>🗑</button>}
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Pallet label photo {labelPhotos.length === 0 && <span style={{ color: 'var(--fail)' }}>· required</span>}</div>
+                  {editable && <MediaCapture label="Label" onUploaded={async (path, type) => { const ok = await insertPhoto('pallet_label', n, true, path, type); if (ok) loadPhotos(cl.id) }} />}
+                  <PhotoStrip itemKey="pallet_label" pieceNo={n} />
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Contents (part no. + quantity)</div>
+                  {(pd.contents || []).map((c, ci) => (
+                    <div key={ci} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                      <input className="txt" list="cl-skus" placeholder="Part no." disabled={!editable} value={c.part_no} style={{ flex: 2 }}
+                        onChange={e => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], part_no: e.target.value }; updateContents(n, arr) }} />
+                      <input className="txt" type="number" min={0} placeholder="Qty" disabled={!editable} value={c.qty || ''} style={{ flex: 1 }}
+                        onChange={e => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], qty: +e.target.value || 0 }; updateContents(n, arr) }} />
+                      {editable && <button className="btn ghost" style={{ minHeight: 40, padding: '0 12px' }} onClick={() => updateContents(n, pd.contents.filter((_, i) => i !== ci))}>✕</button>}
+                    </div>
+                  ))}
+                  {editable && <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => updateContents(n, [...(pd.contents || []), { part_no: '', qty: 0 }])}>＋ Add part no.</button>}
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>Packing checks</span>
+                    {editable && <>
+                      <button className="btn ghost" style={{ minHeight: 30, padding: '2px 10px', fontSize: 12, color: 'var(--pass)', borderColor: 'var(--pass)' }} onClick={() => setAllPallet(n, 'P')}>All P</button>
+                      <button className="btn ghost" style={{ minHeight: 30, padding: '2px 10px', fontSize: 12, color: 'var(--fail)', borderColor: 'var(--fail)' }} onClick={() => setAllPallet(n, 'F')}>All F</button>
+                      <button className="btn ghost" style={{ minHeight: 30, padding: '2px 10px', fontSize: 12 }} onClick={() => setAllPallet(n, 'NA')}>All NA</button>
+                      {undoCount > 0 && <button className="btn ghost" style={{ minHeight: 30, padding: '2px 10px', fontSize: 12, borderColor: 'var(--amber)', color: 'var(--amber)' }} onClick={() => undoPallet(n)}>↶ Undo</button>}
+                    </>}
+                  </div>
+                  {PALLET_PACKING_ITEMS.map(item => (
+                    <div key={item.key} style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                      <div className="row" style={{ gap: 10 }}>
+                        <span style={{ flex: 1, fontSize: 14 }}>{bi(item.label)}</span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <div className="pfna">
+                            {(['P', 'F', 'NA'] as const).map(v => (
+                              <button key={v} disabled={!editable} className={`${v === 'P' ? 'p' : v === 'F' ? 'f' : 'n'} ${pd.checks[item.key] === v ? 'on' : ''}`}
+                                onClick={() => setPalletCheck(n, item.key, pd.checks[item.key] === v ? undefined : v)}>{v}</button>
+                            ))}
+                          </div>
+                          <CamBtn itemKey={item.key} pieceNo={n} isPass={pd.checks[item.key] !== 'F'} />
+                        </div>
+                      </div>
+                      <PhotoStrip itemKey={item.key} pieceNo={n} />
                     </div>
                   ))}
                 </div>
               </div>
+            )
+          })}
+          <datalist id="cl-skus">{skuList.map(s => <option key={s} value={s} />)}</datalist>
+        </div>
+      )}
 
-              {/* Contents */}
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Contents (part no. + quantity)</div>
-                {(pd.contents || []).map((c, ci) => (
-                  <div key={ci} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                    <input className="txt" list="cl-skus" placeholder="Part no." disabled={!editable} value={c.part_no} style={{ flex: 2 }}
-                      onChange={e => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], part_no: e.target.value }; updateContents(n, arr) }} />
-                    <input className="txt" type="number" min={0} placeholder="Qty" disabled={!editable} value={c.qty || ''} style={{ flex: 1 }}
-                      onChange={e => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], qty: +e.target.value || 0 }; updateContents(n, arr) }} />
-                    {editable && <button className="btn ghost" style={{ minHeight: 40, padding: '0 12px' }} onClick={() => updateContents(n, pd.contents.filter((_, i) => i !== ci))}>✕</button>}
-                  </div>
-                ))}
-                {editable && <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => updateContents(n, [...(pd.contents || []), { part_no: '', qty: 0 }])}>＋ Add part no.</button>}
-              </div>
-
-              {/* Packing checks */}
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Packing checks</div>
-                {PALLET_PACKING_ITEMS.map(item => (
-                  <div key={item.key} className="row" style={{ gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                    <span style={{ flex: 1, fontSize: 14 }}>{bi(item.label)}</span>
-                    <PFNARow val={pd.checks[item.key]} onSet={v => setPalletCheck(n, item.key, v)}
-                      onCam={() => setCapture({ itemKey: item.key, pieceNo: n, isPass: pd.checks[item.key] !== 'F' })}
-                      photoCount={photosFor(item.key, n).length} />
-                  </div>
-                ))}
-              </div>
+      <div className="card" style={{ marginTop: 14 }}>
+        <h2>Container Loading Inspection Photos</h2>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>A photo is required for each item below before you can submit.</p>
+        {CONTAINER_PHOTO_ITEMS.map(item => {
+          const ph = photosFor(item.key, 0)
+          return (
+            <div key={item.key} style={{ padding: '11px 0', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{bi(item.label)} {ph.length === 0 && <span style={{ color: 'var(--fail)', fontSize: 12 }}>· photo required</span>}</div>
+              <div className="muted" style={{ fontSize: 12, margin: '2px 0 8px' }}>{bi(item.instruction)}</div>
+              <CamBtn itemKey={item.key} pieceNo={0} label="📷 Add photo / video" />
+              <PhotoStrip itemKey={item.key} pieceNo={0} />
             </div>
           )
         })}
-        <datalist id="cl-skus">{skuList.map(s => <option key={s} value={s} />)}</datalist>
-      </div>
-
-      <div className="card" style={{ marginTop: 14 }}>
-        <h2>Container Loading checks</h2>
-        {CONTAINER_ITEMS.map(item => (
-          <div key={item.key} className="row" style={{ gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ flex: 1, fontWeight: 600, fontSize: 15 }}>{bi(item.label)}</span>
-            <PFNARow val={cl.data.container_checks?.[item.key]} onSet={v => setContainerCheck(item.key, v)}
-              onCam={() => setCapture({ itemKey: item.key, pieceNo: 0, isPass: cl.data.container_checks?.[item.key] !== 'F' })}
-              photoCount={photosFor(item.key, 0).length} />
-          </div>
-        ))}
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
