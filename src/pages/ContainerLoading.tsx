@@ -9,7 +9,7 @@ import type { Profile } from '../App'
 type PFNA = 'P' | 'F' | 'NA' | undefined
 interface Content { part_no: string; qty: number }
 interface PalletData { contents: Content[]; checks: Record<string, PFNA> }
-interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number; pallets?: Record<string, PalletData> }
+interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number; pallets?: Record<string, PalletData>; non_pallet_contents?: Content[] }
 interface CL {
   id: string; po_no: string; container_no: string; seal_no: string
   status: string; insp_status: string; inspector_id: string
@@ -27,6 +27,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [skuList, setSkuList] = useState<string[]>([])
   const [capture, setCapture] = useState<{ itemKey: string; pieceNo: number; isPass: boolean } | null>(null)
   const [history, setHistory] = useState<{ palletNo: number; prevChecks: Record<string, PFNA> }[]>([])
+  const [activePallet, setActivePallet] = useState(1)
   const [err, setErr] = useState('')
 
   const loadPhotos = useCallback(async (clId: string) => {
@@ -66,6 +67,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const loadingType = cl.data.loading_type || 'pallet'
   const palletCount = cl.data.pallet_count ?? 0
   const pallets = Array.from({ length: palletCount }, (_, i) => i + 1)
+  const curPallet = Math.min(Math.max(activePallet, 1), palletCount || 1)
 
   const patch = async (fields: Partial<CL>) => {
     const next = { ...cl, ...fields }; setCl(next)
@@ -190,6 +192,30 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         )}
       </div>
 
+      <datalist id="cl-skus">{skuList.map(s => <option key={s} value={s} />)}</datalist>
+
+      {loadingType === 'non_pallet' && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h2>Non-Pallet Loading</h2>
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>Add each part number loaded into the container and the quantity.</p>
+          {(cl.data.non_pallet_contents || []).map((c, ci) => {
+            const set = (contents: Content[]) => setData({ ...cl.data, non_pallet_contents: contents })
+            const arr = cl.data.non_pallet_contents || []
+            return (
+              <div key={ci} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <input className="txt" list="cl-skus" placeholder="Part no." disabled={!editable} value={c.part_no} style={{ flex: 2 }}
+                  onChange={e => { const a = [...arr]; a[ci] = { ...a[ci], part_no: e.target.value }; set(a) }} />
+                <input className="txt" type="number" min={0} placeholder="Qty" disabled={!editable} value={c.qty || ''} style={{ flex: 1 }}
+                  onChange={e => { const a = [...arr]; a[ci] = { ...a[ci], qty: +e.target.value || 0 }; set(a) }} />
+                {editable && <button className="btn ghost" style={{ minHeight: 40, padding: '0 12px' }} onClick={() => set(arr.filter((_, i) => i !== ci))}>✕</button>}
+              </div>
+            )
+          })}
+          {editable && <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}
+            onClick={() => setData({ ...cl.data, non_pallet_contents: [...(cl.data.non_pallet_contents || []), { part_no: '', qty: 0 }] })}>＋ Add part no.</button>}
+        </div>
+      )}
+
       {loadingType === 'pallet' && (
         <div className="card" style={{ marginTop: 14 }}>
           <h2>Pallet Packing</h2>
@@ -197,10 +223,25 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
             <input className="txt" type="number" min={1} max={22} disabled={!editable} value={cl.data.pallet_count ?? ''}
               onChange={e => { const n = Math.max(0, Math.min(22, Math.floor(+e.target.value || 0))); setData({ ...cl.data, pallet_count: n }) }} /></label>
 
-          {palletCount < 1 ? <p className="muted" style={{ marginTop: 12 }}>Enter the number of pallets.</p> : pallets.map(n => {
-            const pd = palletOf(n); const labelPhotos = photosFor('pallet_label', n)
-            const undoCount = history.filter(e => e.palletNo === n).length
-            return (
+          {palletCount < 1 ? <p className="muted" style={{ marginTop: 12 }}>Enter the number of pallets.</p> : (
+            <>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '12px 0' }}>
+              {pallets.map(pn => {
+                const filled = (palletOf(pn).contents || []).some(c => c.part_no) || Object.keys(palletOf(pn).checks || {}).length > 0 || photosFor('pallet_label', pn).length > 0
+                return (
+                  <button key={pn} onClick={() => setActivePallet(pn)}
+                    style={{ minHeight: 44, minWidth: 48, padding: '4px 10px', borderRadius: 8, fontWeight: 700, cursor: 'pointer',
+                      border: `1.5px solid ${curPallet === pn ? 'var(--navy)' : 'var(--line)'}`,
+                      background: curPallet === pn ? 'var(--navy)' : (filled ? 'var(--pass-bg)' : '#fff'),
+                      color: curPallet === pn ? '#fff' : 'var(--navy)' }}>{pn}</button>
+                )
+              })}
+            </div>
+            {(() => {
+              const n = curPallet
+              const pd = palletOf(n); const labelPhotos = photosFor('pallet_label', n)
+              const undoCount = history.filter(e => e.palletNo === n).length
+              return (
               <div key={n} style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 12 }}>
                 <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>Pallet {n}</div>
 
@@ -254,8 +295,9 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
                 </div>
               </div>
             )
-          })}
-          <datalist id="cl-skus">{skuList.map(s => <option key={s} value={s} />)}</datalist>
+            })()}
+            </>
+          )}
         </div>
       )}
 
