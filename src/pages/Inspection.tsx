@@ -181,6 +181,22 @@ export default function Inspection({ profile }: { profile: Profile }) {
     load()
   }
 
+  // Per-parameter undo for the pallet/container tab (reverts the latest matching action)
+  const undoParam = async (matches: (e: HistoryEntry) => boolean) => {
+    if (!insp) return
+    let idx = -1
+    for (let i = history.length - 1; i >= 0; i--) { if (matches(history[i])) { idx = i; break } }
+    if (idx < 0) return
+    const e = history[idx]
+    setHistory(h => h.filter((_, i) => i !== idx))
+    const pd = { ...insp.pallet_data }
+    if (e.type === 'set_pallet') { if (e.prev === undefined) delete pd[e.key]; else pd[e.key] = e.prev }
+    else if (e.type === 'pallet_all' && e.prevMap) { for (const [k, v] of Object.entries(e.prevMap)) { if (v === undefined) delete pd[k]; else pd[k] = v } }
+    setInsp({ ...insp, pallet_data: pd })
+    await supabase.from('inspections').update({ pallet_data: pd, updated_at: new Date().toISOString() }).eq('id', insp.id)
+    load()
+  }
+
   const undoLast = async () => {
     if (!insp || history.length===0) return
     const last = history[history.length-1]
@@ -690,6 +706,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
                   <span style={{ fontWeight:600, fontSize:15 }}>{bi(item.label)}</span>
                   <RefIcon itemKey={item.key} label={bi(item.label)} />
+                  <span style={{ flex:1 }} />
+                  {editable && (() => {
+                    const pred = (e: HistoryEntry) => (e.type==='set_pallet' && e.key.startsWith(`${item.key}:`)) || (e.type==='pallet_all' && e.key===item.key)
+                    const c = history.filter(pred).length
+                    return c>0 ? <button className="btn ghost" style={{ minHeight:30, padding:'2px 10px', fontSize:12, borderColor:'var(--amber)', color:'var(--amber)' }} onClick={() => undoParam(pred)}>↶ {t('undo')} ({c})</button> : null
+                  })()}
                 </div>
                 {editable && (
                   <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
@@ -705,11 +727,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
                     return (
                       <div key={n} style={{ width:86, border:`1.5px solid ${val==='P'?'var(--pass)':val==='F'?'var(--fail)':'var(--line)'}`, borderRadius:8, overflow:'hidden',
                         background: val==='P'?'var(--pass-bg)':val==='F'?'var(--fail-bg)':'#fff' }}>
-                        <button disabled={!editable || !val || val==='NA'}
-                          style={{ width:'100%', fontSize:11, fontWeight:700, padding:'3px 0', border:'none', borderBottom:'1px solid var(--line)', background:'rgba(0,0,0,.04)', color:'var(--navy)', cursor:(val&&val!=='NA')?'pointer':'default' }}
-                          onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:n, tab:'pallet' })}>
-                          Pallet {n}{ph.length>0?' 📷':''}
-                        </button>
+                        <div style={{ fontSize:11, fontWeight:700, padding:'3px 0', textAlign:'center', borderBottom:'1px solid var(--line)', background:'rgba(0,0,0,.04)', color:'var(--navy)' }}>Pallet {n}</div>
                         <div style={{ display:'flex' }}>
                           {(['P','F','NA'] as const).map(v => (
                             <button key={v} disabled={!editable}
@@ -720,6 +738,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
                               onClick={() => setCell(item.key, bi(item.label), n, v)}>{v}</button>
                           ))}
                         </div>
+                        {editable && (
+                          <button style={{ width:'100%', border:'none', borderTop:'1px solid var(--line)', minHeight:28, background:'#fff', fontSize:11, cursor:'pointer', color: ph.length>0?'var(--navy)':'var(--ink-soft)' }}
+                            onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:n, tab:'pallet' })}>
+                            {ph.length>0?`📷 ${ph.length}`:'📷 +'}
+                          </button>
+                        )}
                       </div>
                     )
                   })}
@@ -759,11 +783,15 @@ export default function Inspection({ profile }: { profile: Profile }) {
                             }}>{v}</button>
                         ))}
                       </div>
-                      {editable && val && val!=='NA' && (
+                      {editable && (
                         <button className={`plus-btn ${ph.length>0?(val==='P'?'has-photo':'has-fail-photo'):''}`}
                           onClick={() => setModal({ type:val==='F'?'fail':'pass', itemKey:item.key, itemLabel:bi(item.label), pieceNo:0, tab:'pallet' })}>
                           {ph.length>0?`📷 ${ph.length}`:'📷+'}
                         </button>
+                      )}
+                      {editable && history.some(e=>e.type==='set_pallet'&&e.key===item.key) && (
+                        <button className="btn ghost" style={{ minHeight:38, padding:'4px 10px', fontSize:13, borderColor:'var(--amber)', color:'var(--amber)' }}
+                          title={t('undo')} onClick={() => undoParam(e => e.type==='set_pallet'&&e.key===item.key)}>↶</button>
                       )}
                     </div>
                   </div>
@@ -771,8 +799,6 @@ export default function Inspection({ profile }: { profile: Profile }) {
               )
             })}
           </div>
-
-          {editable && history.length>0 && <button className="btn ghost" style={{ marginTop:12, minHeight:36, padding:'4px 12px', fontSize:13, borderColor:'var(--amber)', color:'var(--amber)' }} onClick={undoLast}>{t('undo')} ({history.length})</button>}
         </div>
       )}
 

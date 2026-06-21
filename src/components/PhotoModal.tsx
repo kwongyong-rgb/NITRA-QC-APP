@@ -29,7 +29,7 @@ interface BaseProps {
 }
 
 // ── Media capture: photo or video ──
-function MediaCapture({ onUploaded, label }: { onUploaded: (path: string, type: 'photo'|'video') => void; label: string }) {
+export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string, type: 'photo'|'video') => void; label: string }) {
   const photoRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
