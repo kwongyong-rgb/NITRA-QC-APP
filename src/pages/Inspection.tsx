@@ -78,6 +78,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [submitMsg, setSubmitMsg] = useState('')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [photoFilter, setPhotoFilter] = useState<'all'|'approved'|'failed'>('all')
+  const [amendOpen, setAmendOpen] = useState(false)
+  const [amendPo, setAmendPo] = useState('')
+  const [amendPart, setAmendPart] = useState('')
+  const [skuOptions, setSkuOptions] = useState<string[]>([])
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
 
   const load = useCallback(async () => {
@@ -110,6 +114,29 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }, [photos]) // eslint-disable-line
 
   const editable = !!(insp && (insp.status==='draft'||insp.status==='rejected') && insp.inspector_id===profile.id)
+  const canAmend = profile.role === 'approver'
+
+  useEffect(() => {
+    if (!canAmend) return
+    supabase.from('skus').select('part_no').eq('active', true).order('part_no')
+      .then(({ data }) => setSkuOptions((data || []).map((s: { part_no: string }) => s.part_no)))
+  }, [canAmend])
+
+  const openAmend = () => { if (!insp) return; setAmendPo(insp.po_no || ''); setAmendPart(insp.part_no || ''); setAmendOpen(true) }
+  const applyAmend = async () => {
+    if (!insp) return
+    const newPart = amendPart.trim()
+    if (newPart && newPart !== insp.part_no) {
+      const { data: s, error } = await supabase.from('skus').select('part_no').eq('part_no', newPart).maybeSingle()
+      if (error) { alert('Lookup failed: ' + error.message); return }
+      if (!s) { alert(`No SKU named "${newPart}" exists. Add/import it first, then amend.`); return }
+    }
+    const { error } = await supabase.from('inspections').update({
+      po_no: amendPo.trim(), part_no: newPart || insp.part_no, updated_at: new Date().toISOString(),
+    }).eq('id', insp.id)
+    if (error) { alert('Amendment failed: ' + error.message); return }
+    setAmendOpen(false); setSubmitMsg('Report amended.'); load()
+  }
 
   const saveFd = async (fd: Insp['form_data']) => {
     if (!insp) return
@@ -461,7 +488,28 @@ export default function Inspection({ profile }: { profile: Profile }) {
         <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {insp.app_sample} · Fun: {insp.fun_sample}</p>
         {insp.status==='rejected' && insp.review_note && <div className="banner bad" style={{ marginTop:8 }}>↩ {insp.review_note}</div>}
         {submitMsg && <div className="banner ok" style={{ marginTop:8 }}>{submitMsg}</div>}
+        {canAmend && (
+          <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, marginTop:10 }} onClick={openAmend}>✎ Amend PO / Part No. (approver)</button>
+        )}
       </div>
+
+      {amendOpen && (
+        <div className="modal-overlay" onClick={() => setAmendOpen(false)}>
+          <div className="modal" style={{ width:'min(520px,94vw)' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop:0 }}>Amend report</h2>
+            <label className="fld"><span>{t('poNo')}</span>
+              <input className="txt" value={amendPo} onChange={e => setAmendPo(e.target.value)} /></label>
+            <label className="fld" style={{ marginTop:10 }}><span>{t('partNo')}</span>
+              <input className="txt" list="amend-skus" value={amendPart} onChange={e => setAmendPart(e.target.value)} /></label>
+            <datalist id="amend-skus">{skuOptions.map(s => <option key={s} value={s} />)}</datalist>
+            <p className="muted" style={{ fontSize:12, marginTop:8 }}>Changing the part number re-points this report to that SKU’s specs. Recorded results and photos are kept — use the Photos tab to re-assign pictures.</p>
+            <div className="row" style={{ marginTop:14 }}>
+              <button className="btn" onClick={applyAmend}>Apply</button>
+              <button className="btn ghost" onClick={() => setAmendOpen(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rule engine banners */}
       {verdicts.length===0
@@ -633,7 +681,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
                                   {p.piece_no>0&&<> · pc{p.piece_no}</>}
                                 </div>
                               </div>
-                              {editable && (
+                              {(editable || canAmend) && (
                                 <div style={{ position:'absolute', top:4, right:4, display:'flex', gap:4 }}>
                                   <button title="Reassign to another parameter" style={{ background:'rgba(0,0,0,.62)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
                                     onClick={() => setModal({ type:'reassign', photo:p })}>↻</button>
