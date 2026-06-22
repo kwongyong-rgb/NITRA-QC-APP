@@ -18,8 +18,9 @@ export default function Skus() {
   useEffect(() => { load() }, [])
 
   const save = async () => {
-    if (!edit?.part_no) return
-    await supabase.from('skus').upsert(edit)
+    if (!edit?.part_no) { alert('Part No. is required.'); return }
+    const { error } = await supabase.from('skus').upsert(edit)
+    if (error) { alert('Save failed: ' + error.message); return }
     setEdit(null); load()
   }
 
@@ -140,23 +141,28 @@ export default function Skus() {
         </table>
       </div>
       {edit && (
-        <div className="card" style={{ border: '2px solid var(--navy)' }}>
-          <h2>{edit.part_no || 'New SKU'}</h2>
-          <div className="grid2">
-            {F('part_no', 'Part No.')}{F('model', 'Model')}{F('size', 'Size (e.g. 18x8.0)')}
-            {F('diameter_in', 'Diameter (in)', 'number')}{F('pcd', 'PCD (e.g. 5x114.3)')}
-            {F('offset_txt', 'Offset text (e.g. +40)')}{F('offset_mm', 'Offset mm', 'number')}
-            {F('cb_mm', 'CB mm', 'number')}{F('lug_hole_mm', 'Lug hole mm', 'number')}
-            {F('counter_bore_mm', 'Counter bore mm', 'number')}{F('seat_thickness_mm', 'Seat thickness mm', 'number')}
-            {F('lug_seat_type', 'Lug seat type')}{F('finish', 'Finish')}
-            {F('brand_name', 'Brand Name')}{F('factory', 'Factory')}
-            {F('max_load_lbs', 'Max load lbs', 'number')}{F('upc_code', 'UPC')}{F('fitment', 'Fitment')}
-            {F('wheel_weight_kg', 'Wheel weight (kg)', 'number')}{F('wheel_weight_tol_kg', 'Weight tol ± (kg)', 'number')}
-            {F('tpms_sensor_mm', 'TPMS sensor (mm)')}
-          </div>
-          <div className="row" style={{ marginTop: 14 }}>
-            <button className="btn" onClick={save}>{t('save')}</button>
-            <button className="btn ghost" onClick={() => setEdit(null)}>Cancel</button>
+        <div className="modal-overlay" onClick={() => setEdit(null)}>
+          <div className="modal" style={{ width: 'min(680px, 94vw)', maxHeight: '88vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 style={{ margin: 0 }}>{edit.part_no || 'New SKU'}</h2>
+              <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px' }} onClick={() => setEdit(null)}>✕</button>
+            </div>
+            <div className="grid2">
+              {F('part_no', 'Part No.')}{F('model', 'Model')}{F('size', 'Size (e.g. 18x8.0)')}
+              {F('diameter_in', 'Diameter (in)', 'number')}{F('pcd', 'PCD (e.g. 5x114.3)')}
+              {F('offset_txt', 'Offset text (e.g. +40)')}{F('offset_mm', 'Offset mm', 'number')}
+              {F('cb_mm', 'CB mm', 'number')}{F('lug_hole_mm', 'Lug hole mm', 'number')}
+              {F('counter_bore_mm', 'Counter bore mm', 'number')}{F('seat_thickness_mm', 'Seat thickness mm', 'number')}
+              {F('lug_seat_type', 'Lug seat type')}{F('finish', 'Finish')}
+              {F('brand_name', 'Brand Name')}{F('factory', 'Factory')}
+              {F('max_load_lbs', 'Max load lbs', 'number')}{F('upc_code', 'UPC')}{F('fitment', 'Fitment')}
+              {F('wheel_weight_kg', 'Wheel weight (kg)', 'number')}{F('wheel_weight_tol_kg', 'Weight tol ± (kg)', 'number')}
+              {F('tpms_sensor_mm', 'TPMS sensor (mm)')}
+            </div>
+            <div className="row" style={{ marginTop: 16 }}>
+              <button className="btn" onClick={save}>{t('save')}</button>
+              <button className="btn ghost" onClick={() => setEdit(null)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
