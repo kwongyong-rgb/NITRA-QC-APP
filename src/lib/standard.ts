@@ -101,6 +101,7 @@ export interface Sku {
   pcd: string; offset_mm: number; offset_txt: string; cb_mm: number
   lug_hole_mm: number; counter_bore_mm: number; seat_thickness_mm: number
   lug_seat_type: string; finish: string; max_load_lbs: number
+  brand_name: string; factory: string
   wheel_weight_kg: number | null; wheel_weight_tol_kg: number
   tpms_sensor_mm: string
 }

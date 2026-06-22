@@ -5,7 +5,7 @@ import { useI18n } from '../lib/i18n'
 import type { Sku } from '../lib/standard'
 
 type Row = Sku & { part_no_old: string; upc_code: string; fitment: string; active: boolean; bolt_circle_mm: number; wheel_weight_kg: number|null; wheel_weight_tol_kg: number; tpms_sensor_mm: string }
-const EMPTY: Row = { part_no: '', part_no_old: '', model: '', size: '', diameter_in: 18, pcd: '', bolt_circle_mm: 0, offset_txt: '', offset_mm: 0, cb_mm: 0, lug_hole_mm: 15, counter_bore_mm: 34, seat_thickness_mm: 9.5, lug_seat_type: '', finish: '', max_load_lbs: 0, upc_code: '', fitment: '', wheel_weight_kg: null, wheel_weight_tol_kg: 0.4, tpms_sensor_mm: '', active: true }
+const EMPTY: Row = { part_no: '', part_no_old: '', model: '', size: '', diameter_in: 18, pcd: '', bolt_circle_mm: 0, offset_txt: '', offset_mm: 0, cb_mm: 0, lug_hole_mm: 15, counter_bore_mm: 34, seat_thickness_mm: 9.5, lug_seat_type: '', finish: '', max_load_lbs: 0, brand_name: '', factory: '', upc_code: '', fitment: '', wheel_weight_kg: null, wheel_weight_tol_kg: 0.4, tpms_sensor_mm: '', active: true }
 
 export default function Skus() {
   const { t } = useI18n()
@@ -23,35 +23,86 @@ export default function Skus() {
     setEdit(null); load()
   }
 
-  // Excel import — same columns as the master wheel data file
+  // Excel import — header-aware. Recognises the master wheel-data file, the simple
+  // order file, and common header variants, by matching normalised column names.
   const importXlsx = async (f: File) => {
     const wb = XLSX.read(await f.arrayBuffer())
     const ws = wb.Sheets[wb.SheetNames[0]]
     const recs = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws)
-    const drill = (s: unknown) => {
-      const m = String(s || '').match(/∮(\d+(?:\.\d+)?).*?∮(\d+(?:\.\d+)?)/)
-      return m ? { lug: +m[1], cb: +m[2] } : { lug: 15, cb: 34 }
-    }
-    const out = recs.filter(r => r['NEW_PART_NUMBER']).map(r => {
-      const d = drill(r['DRILL_NO'])
-      const dia = Number(r['WHEEL_DIAMETER'] || 0), wid = Number(r['WHEEL_WIDTH'] || 0)
-      const bcd = Number(r['BOLT_CIRCLE_MM'] || 0)
-      return {
-        part_no: String(r['NEW_PART_NUMBER']), part_no_old: String(r['PART_NUMBER'] || ''),
-        model: String(r['STYLE_NAME'] || ''), size: `${dia}x${wid.toFixed(1)}`, diameter_in: dia,
-        pcd: `${r['LUG_HOLES']}x${bcd % 1 ? bcd.toFixed(1) : bcd}`, bolt_circle_mm: bcd,
-        offset_txt: String(r['OFFSET_MM'] || ''), offset_mm: Number(String(r['OFFSET_MM'] || '0').replace('+', '')),
-        cb_mm: Number(r['PRODUCTION_CB_MM'] || 0), lug_hole_mm: d.lug, counter_bore_mm: d.cb,
-        seat_thickness_mm: Number(r['LUG_SEAT_THICKNESS_1_MM'] || 0), lug_seat_type: String(r['LUG_SEAT'] || ''),
-        finish: String(r['FACTORY_FINISH_NAME'] || ''), max_load_lbs: Number(r['LOAD_RATING_LBS'] || 0),
-        upc_code: String(r['UPC_CODE'] || ''), fitment: String(r['FITMENT'] || ''), active: true,
-        // File stores weight in lbs (col WHEEL_WEIGHT_LBS); app stores & shows kg.
-        wheel_weight_kg: r['WHEEL_WEIGHT_LBS'] != null && r['WHEEL_WEIGHT_LBS'] !== ''
-          ? Number((Number(r['WHEEL_WEIGHT_LBS']) * 0.45359237).toFixed(3)) : null,
+    const num = (v: unknown) => Number(String(v ?? '').replace(/[^\d.\-]/g, '')) || 0
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+    const out: Row[] = []
+    for (const rec of recs) {
+      // normalised-header -> value map for this row
+      const m: Record<string, unknown> = {}
+      for (const k of Object.keys(rec)) m[norm(k)] = rec[k]
+      const pick = (...aliases: string[]) => { for (const a of aliases) if (m[a] != null && m[a] !== '') return m[a]; return '' }
+
+      const hasNew = 'newpartnumber' in m
+      const partNo = hasNew ? String(m['newpartnumber'] || '') : String(pick('partno', 'partnumber', 'part') || '')
+      if (!partNo) continue
+
+      // size: explicit "Size" string, else diameter + width columns
+      let dia = 0, wid = 0
+      const sizeStr = String(pick('size', 'wheelsize'))
+      if (sizeStr) { const [a, b] = sizeStr.toLowerCase().replace(/\s/g, '').split('x'); dia = num(a); wid = num(b) }
+      else { dia = num(pick('wheeldiameter')); wid = num(pick('wheelwidth')) }
+
+      // pcd: explicit "PCD" string, else lug holes + bolt circle columns
+      let holes = '', bcd = 0
+      const pcdStr = String(pick('pcd'))
+      if (pcdStr) { const [a, b] = pcdStr.toLowerCase().replace(/\s/g, '').split('x'); holes = a; bcd = num(b) }
+      else { holes = String(pick('lugholes') || ''); bcd = num(pick('boltcirclemm')) }
+
+      // drill (lug hole ∮ / counter-bore ∮) — master only
+      const dm = String(pick('drillno') || '').match(/∮(\d+(?:\.\d+)?).*?∮(\d+(?:\.\d+)?)/)
+      const lugHole = dm ? +dm[1] : 15, cBore = dm ? +dm[2] : 34
+
+      const et = num(pick('offsetmm', 'et', 'offset'))
+
+      // load: prefer explicit lbs column; else "Wheel Load" (kg→lb if it says kg)
+      const loadLbsRaw = pick('loadratinglbs')
+      const wheelLoad = String(pick('wheelload', 'load'))
+      const maxLoadLbs = loadLbsRaw !== '' ? num(loadLbsRaw)
+        : wheelLoad ? Math.round(/kg/i.test(wheelLoad) ? num(wheelLoad) / 0.45359237 : num(wheelLoad)) : 0
+
+      // wheel weight: lbs column (→kg) or kg column
+      const wWtLbs = pick('wheelweightlbs'), wWtKg = pick('wheelweightkg')
+      const wheelWeightKg = wWtLbs !== '' ? Number((num(wWtLbs) * 0.45359237).toFixed(3))
+        : wWtKg !== '' ? Number(num(wWtKg).toFixed(3)) : null
+
+      out.push({
+        part_no: partNo.trim().replace(/\s+/g, ' '),
+        part_no_old: hasNew ? String(m['partnumber'] || '') : '',
+        model: String(pick('stylename', 'model', 'style') || '').trim(),
+        size: dia && wid ? `${dia}x${wid.toFixed(1)}` : sizeStr,
+        diameter_in: dia,
+        pcd: holes && bcd ? `${holes}x${bcd % 1 ? bcd.toFixed(1) : bcd}` : pcdStr,
+        bolt_circle_mm: bcd,
+        offset_txt: hasNew ? String(pick('offsetmm') || '') : (et ? `ET${et}` : ''),
+        offset_mm: et,
+        cb_mm: num(pick('productioncbmm', 'cb', 'cbmm')),
+        lug_hole_mm: lugHole, counter_bore_mm: cBore,
+        seat_thickness_mm: num(pick('lugseatthickness1mm', 'seatthickness')),
+        lug_seat_type: String(pick('lugseat', 'seattype') || ''),
+        finish: String(pick('factoryfinishname', 'color', 'colour', 'finish') || '').trim(),
+        max_load_lbs: maxLoadLbs,
+        brand_name: String(pick('brandname', 'brand') || '').trim(),
+        factory: String(pick('factory', 'factoryname', 'plant') || '').trim(),
+        upc_code: String(pick('upccode', 'upc') || ''),
+        fitment: String(pick('fitment') || ''),
+        active: true,
+        wheel_weight_kg: wheelWeightKg,
         wheel_weight_tol_kg: 0.4,
-        tpms_sensor_mm: String(r['TPMS_SENSOR_MM'] || '').trim().replace(/[xX]/g, '×'),
-      }
-    })
+        tpms_sensor_mm: String(pick('tpmssensormm', 'tpms') || '').trim().replace(/[xX]/g, '×'),
+      })
+    }
+
+    if (out.length === 0) {
+      setMsg('No SKUs recognised — the file needs at least a part-number column (e.g. "Part No." or "NEW_PART_NUMBER").')
+      return
+    }
     const { error } = await supabase.from('skus').upsert(out)
     setMsg(error ? error.message : `Imported ${out.length} SKUs ✓`)
     load()
@@ -75,11 +126,11 @@ export default function Skus() {
           {msg && <span className="muted">{msg}</span>}
         </div>
         <table className="tbl">
-          <thead><tr><th>Part No.</th><th>Model</th><th>Size</th><th>PCD</th><th>ET</th><th>CB</th><th>Finish</th><th>Wt(kg)</th><th>TPMS</th><th /></tr></thead>
+          <thead><tr><th>Part No.</th><th>Brand</th><th>Factory</th><th>Model</th><th>Size</th><th>PCD</th><th>ET</th><th>CB</th><th>Finish</th><th>Wt(kg)</th><th>TPMS</th><th /></tr></thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.part_no}>
-                <td>{r.part_no}</td><td>{r.model}</td><td>{r.size}</td><td>{r.pcd}</td>
+                <td>{r.part_no}</td><td>{r.brand_name || '—'}</td><td>{r.factory || '—'}</td><td>{r.model}</td><td>{r.size}</td><td>{r.pcd}</td>
                 <td>{r.offset_txt}</td><td>{r.cb_mm}</td><td>{r.finish}</td>
                 <td>{r.wheel_weight_kg ?? '—'}</td><td>{r.tpms_sensor_mm || '—'}</td>
                 <td><button className="btn ghost" style={{ minHeight: 36, padding: '4px 10px' }} onClick={() => setEdit(r)}>✎</button></td>
@@ -98,6 +149,7 @@ export default function Skus() {
             {F('cb_mm', 'CB mm', 'number')}{F('lug_hole_mm', 'Lug hole mm', 'number')}
             {F('counter_bore_mm', 'Counter bore mm', 'number')}{F('seat_thickness_mm', 'Seat thickness mm', 'number')}
             {F('lug_seat_type', 'Lug seat type')}{F('finish', 'Finish')}
+            {F('brand_name', 'Brand Name')}{F('factory', 'Factory')}
             {F('max_load_lbs', 'Max load lbs', 'number')}{F('upc_code', 'UPC')}{F('fitment', 'Fitment')}
             {F('wheel_weight_kg', 'Wheel weight (kg)', 'number')}{F('wheel_weight_tol_kg', 'Weight tol ± (kg)', 'number')}
             {F('tpms_sensor_mm', 'TPMS sensor (mm)')}
