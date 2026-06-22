@@ -29,6 +29,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [capture, setCapture] = useState<{ itemKey: string; pieceNo: number; isPass: boolean } | null>(null)
   const [history, setHistory] = useState<{ palletNo: number; prevChecks: Record<string, PFNA> }[]>([])
   const [activePallet, setActivePallet] = useState(1)
+  const [reviewNote, setReviewNote] = useState('')
   const [err, setErr] = useState('')
 
   const loadPhotos = useCallback(async (clId: string) => {
@@ -152,6 +153,27 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     await patch({ insp_status: 'submitted' })
     await supabase.from('container_loadings').update({ submitted_at: new Date().toISOString() }).eq('id', cl.id)
     alert('Submitted for approval.')
+  }
+
+  const decide = async (status: 'approved' | 'rejected') => {
+    if (!confirm(status === 'approved' ? 'Approve this container loading?' : 'Reject and send back to the inspector?')) return
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('container_loadings').update({
+      insp_status: status, reviewed_at: new Date().toISOString(), reviewed_by: user?.id, review_note: reviewNote,
+    }).eq('id', cl.id)
+    if (error) { alert('Sign-off failed: ' + error.message); return }
+    setCl({ ...cl, insp_status: status, review_note: reviewNote })
+    alert(status === 'approved' ? 'Approved. Use “Email container report” to send it when ready.' : 'Rejected and sent back to the inspector.')
+  }
+
+  const emailReport = async () => {
+    const raw = window.prompt('Enter recipient email(s), comma-separated. Leave blank to use the saved distribution list.')
+    if (raw === null) return
+    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
+    const { data, error } = await supabase.functions.invoke('send-container-report', { body: { container_loading_id: cl.id, emails } })
+    if (error) { alert('Email failed: ' + error.message); return }
+    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
+    alert('Container report email sent.')
   }
 
   return (
@@ -320,12 +342,34 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
       <div className="card" style={{ marginTop: 14 }}>
         <h2>Disposition</h2>
+        {cl.insp_status === 'rejected' && cl.review_note && <div className="banner bad" style={{ marginBottom: 10 }}>↩ {cl.review_note}</div>}
         <label className="fld"><span>Corrective action / notes</span>
           <textarea className="txt" rows={3} disabled={!editable} value={cl.summary.corrective_action || ''}
             onChange={e => patch({ summary: { ...cl.summary, corrective_action: e.target.value } })} /></label>
-        {editable && cl.insp_status !== 'submitted' && <button className="btn" style={{ width: '100%', marginTop: 14 }} onClick={submit}>Submit for approval</button>}
-        {cl.insp_status === 'submitted' && <p className="muted" style={{ marginTop: 10 }}>Submitted — awaiting approver sign-off.</p>}
-        {cl.insp_status === 'approved' && <p style={{ color: 'var(--pass)', marginTop: 10, fontWeight: 600 }}>✓ Approved</p>}
+
+        {['draft', 'rejected'].includes(cl.insp_status) && editable &&
+          <button className="btn" style={{ width: '100%', marginTop: 14 }} onClick={submit}>Submit for approval</button>}
+
+        {cl.insp_status === 'submitted' && profile.role !== 'approver' &&
+          <p className="muted" style={{ marginTop: 10 }}>Submitted — awaiting approver sign-off.</p>}
+
+        {cl.insp_status === 'submitted' && profile.role === 'approver' && (
+          <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Approver sign-off</div>
+            <input className="txt" placeholder="Review note (optional)…" value={reviewNote} onChange={e => setReviewNote(e.target.value)} />
+            <div className="row" style={{ gap: 8, marginTop: 10 }}>
+              <button className="btn ok" style={{ flex: 1 }} onClick={() => decide('approved')}>Approve</button>
+              <button className="btn danger" style={{ flex: 1 }} onClick={() => decide('rejected')}>Reject</button>
+            </div>
+          </div>
+        )}
+
+        {cl.insp_status === 'approved' && (
+          <div style={{ marginTop: 12 }}>
+            <p style={{ color: 'var(--pass)', fontWeight: 600 }}>✓ Approved</p>
+            <button className="btn ghost" style={{ width: '100%', marginTop: 8 }} onClick={emailReport}>📧 Email container report</button>
+          </div>
+        )}
       </div>
 
       {capture && (

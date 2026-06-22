@@ -51,6 +51,14 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const canDelInsp = (r: Insp) => profile.role === 'approver' || (r.status === 'draft' && r.inspector_id === profile.id)
   const canDelCont = (c: Cont) => profile.role === 'approver' || (['draft', 'rejected'].includes(c.insp_status) && c.inspector_id === profile.id)
 
+  const delPO = async () => {
+    if (!confirm(`Delete the ENTIRE PO “${po || '(No PO)'}”?\n\nThis permanently deletes its ${insps.length} wheel inspection(s) and ${conts.length} container loading(s), including their photos.\n\nThis cannot be undone.`)) return
+    const { error: e1 } = await supabase.from('inspections').delete().eq('po_no', po)
+    const { error: e2 } = await supabase.from('container_loadings').delete().eq('po_no', po)
+    if (e1 || e2) { alert('Delete failed: ' + (e1?.message || e2?.message)); return }
+    nav('/')
+  }
+
   return (
     <div className="page">
       <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav('/')}>← All POs</button>
@@ -58,6 +66,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
       <div className="card">
         <h2 style={{ marginBottom: 4 }}>PO: {po || '(No PO)'}</h2>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{insps.length} wheel inspection(s) · {conts.length} container loading(s)</p>
+        {profile.role === 'approver' && (insps.length > 0 || conts.length > 0) &&
+          <button className="btn danger" style={{ minHeight: 36, padding: '6px 12px', fontSize: 13, marginTop: 8 }} onClick={delPO}>🗑 Delete entire PO</button>}
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>

@@ -76,7 +76,7 @@ export default function App() {
       </header>
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Home profile={profile} />} />
           <Route path="/po/:poNo" element={<PoHub profile={profile} />} />
           <Route path="/new" element={<NewInspection profile={profile} />} />
           <Route path="/inspection/:id" element={<Inspection profile={profile} />} />
