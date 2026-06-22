@@ -581,7 +581,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
                             <NaOverrideBtn itemKey={col.key} itemLabel={bi(col.label)} isMeas={true} />
                           </div>
                           <div className="muted" style={{ fontSize:13, marginTop:3 }}>
-                            {t('nominal')}: <b>{nom!==null?`${nom} ${col.unit}`:'—'}</b> · {t('tolerance')}: <b>{bi(col.tol)}</b>
+                            {col.expected
+                              ? <>{bi({ en: 'Required', zh: '要求' })}: <b>{col.expected(sku)}</b></>
+                              : <>{t('nominal')}: <b>{nom!==null?`${nom} ${col.unit}`:'—'}</b> · {t('tolerance')}: <b>{bi(col.tol)}</b></>}
                           </div>
                         </div>
                         <PFNAButtons val={val} itemKey={col.key} itemLabel={bi(col.label)} pieceNo={piece} isMeas={true} tabName="measure" />

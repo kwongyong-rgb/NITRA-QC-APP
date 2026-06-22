@@ -92,6 +92,7 @@ export interface MeasCol {
   tol: Bi
   unit: string
   ref?: string   // reference text instead of numeric tolerance (e.g. TPMS)
+  expected?: (sku: Sku) => string   // non-numeric expected value (e.g. lug seat type)
   check: (v: number, sku: Sku) => boolean
 }
 export interface MeasSection { key: string; title: Bi; cols: MeasCol[] }
@@ -141,6 +142,10 @@ export const MEAS_SECTIONS: MeasSection[] = [
       { key: 'seat_thick', label: { en: 'Seat thickness', zh: '座厚' }, unit: 'mm',
         nominal: s => s.seat_thickness_mm, tol: { en: '±0.50 mm', zh: '±0.50 mm' },
         check: (v, s) => Math.abs(v - s.seat_thickness_mm) <= 0.5 },
+      { key: 'lug_seat_type', label: { en: 'Lug seat type', zh: '螺栓座类型' }, unit: '',
+        nominal: () => null, tol: { en: '', zh: '' },
+        expected: s => s.lug_seat_type || '—',
+        check: () => true },
       { key: 'offset', label: { en: 'Offset ET', zh: '偏距' }, unit: 'mm',
         nominal: s => s.offset_mm, tol: { en: '±1.00 mm', zh: '±1.00 mm' },
         check: (v, s) => Math.abs(v - s.offset_mm) <= 1.0 },

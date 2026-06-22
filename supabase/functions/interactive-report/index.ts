@@ -57,6 +57,7 @@ const LABELS: Record<string, string> = {
   laser_format: 'Laser engraving format',
   logo: 'Logo',
   lug_hole: 'Lug hole',
+  lug_seat_type: 'Lug seat type',
   mark_cb: 'Back marking — CB',
   mark_et: 'Back marking — ET',
   mark_nitra: 'Back marking — NITRA brand',

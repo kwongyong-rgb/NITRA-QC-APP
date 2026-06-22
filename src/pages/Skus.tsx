@@ -87,8 +87,10 @@ export default function Skus() {
       if (has('wheelweightlbs', 'wheelweightkg')) fields.wheel_weight_kg = wheelWeightKg
       if (has('tpmssensormm', 'tpms')) fields.tpms_sensor_mm = String(pick('tpmssensormm', 'tpms')).trim().replace(/[xX]/g, '×')
       if (dm) { fields.lug_hole_mm = +dm[1]; fields.counter_bore_mm = +dm[2] }
-      if (has('lugseatthickness1mm', 'seatthickness')) fields.seat_thickness_mm = num(pick('lugseatthickness1mm', 'seatthickness'))
-      if (has('lugseat', 'seattype')) fields.lug_seat_type = String(pick('lugseat', 'seattype') || '')
+      if (has('lugholemm', 'lugholediameter')) fields.lug_hole_mm = num(pick('lugholemm', 'lugholediameter'))
+      if (has('counterboremm', 'counterbore')) fields.counter_bore_mm = num(pick('counterboremm', 'counterbore'))
+      if (has('lugseatthickness1mm', 'seatthickness', 'seatthicknessmm')) fields.seat_thickness_mm = num(pick('lugseatthickness1mm', 'seatthickness', 'seatthicknessmm'))
+      if (has('lugseat', 'seattype', 'lugseattype')) fields.lug_seat_type = String(pick('lugseat', 'seattype', 'lugseattype') || '')
       if (has('upccode', 'upc')) fields.upc_code = String(pick('upccode', 'upc') || '')
       if (has('fitment')) fields.fitment = String(pick('fitment') || '')
       if (hasNew) fields.part_no_old = String(m['partnumber'] || '')
