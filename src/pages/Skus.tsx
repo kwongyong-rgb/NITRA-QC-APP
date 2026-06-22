@@ -63,7 +63,7 @@ export default function Skus() {
       let holes = '', bcd = 0
       const pcdStr = String(pick('pcd'))
       if (pcdStr) { const [a, b] = pcdStr.toLowerCase().replace(/\s/g, '').split('x'); holes = a; bcd = num(b) }
-      else { holes = String(pick('lugholes') || ''); bcd = num(pick('boltcirclemm')) }
+      else { holes = String(pick('lugholes') || ''); bcd = num(pick('boltcirclemm', 'boltcircle')) }
       const dm = String(pick('drillno') || '').match(/∮(\d+(?:\.\d+)?).*?∮(\d+(?:\.\d+)?)/)
       const et = num(pick('offsetmm', 'et', 'offset'))
       const wheelLoad = String(pick('wheelload', 'load'))
@@ -77,7 +77,7 @@ export default function Skus() {
       const fields: Partial<Row> = {}
       if (has('stylename', 'model', 'style')) fields.model = String(pick('stylename', 'model', 'style')).trim()
       if (sizeStr || has('wheeldiameter')) { fields.size = dia && wid ? `${dia}x${wid.toFixed(1)}` : sizeStr; fields.diameter_in = dia }
-      if (pcdStr || has('lugholes', 'boltcirclemm')) { fields.pcd = holes && bcd ? `${holes}x${bcd % 1 ? bcd.toFixed(1) : bcd}` : pcdStr; fields.bolt_circle_mm = bcd }
+      if (pcdStr || has('lugholes', 'boltcirclemm', 'boltcircle')) { fields.pcd = holes && bcd ? `${holes}x${bcd % 1 ? bcd.toFixed(1) : bcd}` : pcdStr; fields.bolt_circle_mm = bcd }
       if (has('offsetmm', 'et', 'offset')) { fields.offset_mm = et; fields.offset_txt = hasNew ? String(pick('offsetmm') || '') : (et ? `ET${et}` : '') }
       if (has('productioncbmm', 'cb', 'cbmm')) fields.cb_mm = num(pick('productioncbmm', 'cb', 'cbmm'))
       if (has('factoryfinishname', 'color', 'colour', 'finish')) fields.finish = String(pick('factoryfinishname', 'color', 'colour', 'finish')).trim()
