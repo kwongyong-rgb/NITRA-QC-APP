@@ -55,11 +55,8 @@ const DISPOSITION: Record<string, { text: string; cls: string }> = {
   approved_loading: { text: 'APPROVED FOR LOADING', cls: 'pass' },
   hold_rework: { text: 'HOLD FOR REWORK & REINSPECTION', cls: 'fail' },
   conditional_loading: { text: 'CONDITIONAL LOADING — FAILED PIECES EXCLUDED', cls: 'hold' },
+  conditional_rework: { text: 'CONDITIONAL LOADING — REWORK REJECTED PIECES & LOAD', cls: 'hold' },
   pending_customer: { text: 'PENDING CUSTOMER APPROVAL', cls: 'hold' },
-  release: { text: 'RELEASE', cls: 'pass' },
-  release_record: { text: 'RELEASE WITH RECORD', cls: 'pass' },
-  hold_100: { text: 'HOLD — 100% INSPECTION', cls: 'hold' },
-  reject: { text: 'REJECT', cls: 'fail' },
 }
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '—')
 const outcomeColor = (o: string) => (o === '100% Inspection' ? 'var(--fail)' : o.startsWith('Additional') ? 'var(--amber)' : 'var(--pass)')
@@ -82,9 +79,9 @@ export default function ReportPage() {
   if (err) return <div style={page}><div style={{ ...card, borderColor: 'var(--fail)' }}><h2 style={{ color: 'var(--fail)' }}>Report unavailable</h2><p>{err}</p></div></div>
   if (!data) return <div style={page}><p style={{ color: 'var(--ink-soft)' }}>Loading report…</p></div>
 
-  const disp = (data.insp.disposition && DISPOSITION[data.insp.disposition]) || { text: data.insp.disposition || '—', cls: 'hold' }
-  const bannerColor = disp.cls === 'pass' ? '#1F8A4C' : disp.cls === 'fail' ? '#C0392B' : '#B97A14'
-  const bannerBg = disp.cls === 'pass' ? '#E3F3EA' : disp.cls === 'fail' ? '#FBE9E7' : '#FCF2DD'
+  const disp = (data.insp.disposition && DISPOSITION[data.insp.disposition]) || { text: 'PENDING DISPOSITION', cls: 'pending' }
+  const bannerColor = disp.cls === 'pass' ? '#1F8A4C' : disp.cls === 'fail' ? '#C0392B' : disp.cls === 'pending' ? '#5A6878' : '#B97A14'
+  const bannerBg = disp.cls === 'pass' ? '#E3F3EA' : disp.cls === 'fail' ? '#FBE9E7' : disp.cls === 'pending' ? '#EEF1F5' : '#FCF2DD'
 
   return (
     <div style={{ background: '#F4F7FA', minHeight: '100vh' }}>

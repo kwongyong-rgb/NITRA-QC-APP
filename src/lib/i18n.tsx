@@ -53,6 +53,7 @@ const STR = {
   dispApprovedLoading: { en: 'Approved for Loading',                     zh: '批准装柜' },
   dispHoldRework:      { en: 'Hold for Rework & Reinspection',          zh: '暂停 — 返工与复检' },
   dispConditional:     { en: 'Conditional Loading — Failed Pieces Excluded', zh: '有条件装柜 — 剔除不合格件' },
+  dispConditionalRework: { en: 'Conditional Loading — Rework Rejected Pieces & Load', zh: '有条件装柜 — 返工不合格件后装柜' },
   dispPendingCustomer: { en: 'Pending Customer Approval',               zh: '待客户批准' },
   inspectionFindings:  { en: 'Inspection Findings',                     zh: '检验结果' },
   correctiveAction:    { en: 'Corrective Action / Disposition',         zh: '纠正措施 / 处置' },

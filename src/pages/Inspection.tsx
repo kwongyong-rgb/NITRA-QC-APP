@@ -960,6 +960,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
               <option value="approved_loading">{t('dispApprovedLoading')}</option>
               <option value="hold_rework">{t('dispHoldRework')}</option>
               <option value="conditional_loading">{t('dispConditional')}</option>
+              <option value="conditional_rework">{t('dispConditionalRework')}</option>
               <option value="pending_customer">{t('dispPendingCustomer')}</option>
             </select>
           </label>
