@@ -209,10 +209,10 @@ Deno.serve(async (req) => {
       const bV = scanBase(baseV, key), bT = scanBase(baseT, key)
       const baseFails = [...bV.fails, ...bT.fails]
       const ex = scanArr(extraV[key] || extraT[key])
-      // 100% applies ONLY while the base sample still triggers it (>=2 base fails,
-      // or any extra-sample fail). If the base was later amended so it no longer
-      // qualifies, any earlier 100% data for this parameter is ignored.
-      const triggers100 = baseFails.length >= 2 || ex.failIdx.length >= 1
+      // Mirror the rule engine: base sample is the gate. 0 base fails = clean
+      // (extras AND any old 100% data are ignored). 100% only when the base has
+      // >=2 fails, or exactly 1 base fail plus a failed extra-sample piece.
+      const triggers100 = baseFails.length >= 2 || (baseFails.length >= 1 && ex.failIdx.length >= 1)
       // Per piece: 100% fills pieces in first (only if triggered), then the base
       // verdict OVERRIDES — base is the first authority and is never overturned.
       const mergedV: Record<number, string> = {}
@@ -224,9 +224,9 @@ Deno.serve(async (req) => {
       const fail = failPieces.length
       const dedup = failPieces.map((n) => `#${n}`)
       let outcome: string
-      if (triggers100) outcome = '100% Inspection'
+      if (baseFails.length === 0) outcome = 'Pass'
+      else if (triggers100) outcome = '100% Inspection'
       else if (ex.checked > 0) outcome = 'Additional Inspection — Pass'
-      else if (baseFails.length === 0) outcome = 'Pass'
       else outcome = 'Additional Inspection Required'
       return {
         parameter: labelOf(key),
