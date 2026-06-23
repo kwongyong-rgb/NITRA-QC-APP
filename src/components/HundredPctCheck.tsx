@@ -6,7 +6,7 @@ interface Props {
   inspectionId: string
   lotSize: number
   triggeredItems: { key: string; label: string }[]
-  baseFails: Record<string, number[]>
+  baseResults: Record<string, Record<string, PFNA>>
   results: Record<string, Record<string, PFNA>>
   onSave: (key: string, pieceNo: number, result: PFNA) => void
   editable: boolean
@@ -17,18 +17,19 @@ type ModalState =
   | { type: 'pass'; itemKey: string; itemLabel: string; pieceNo: number }
   | null
 
-export default function HundredPctCheck({ inspectionId, lotSize, triggeredItems, baseFails, results, onSave, editable }: Props) {
+export default function HundredPctCheck({ inspectionId, lotSize, triggeredItems, baseResults, results, onSave, editable }: Props) {
   const [activeItem, setActiveItem] = useState(triggeredItems[0]?.key || '')
   const [modal, setModal] = useState<ModalState>(null)
 
   const item = triggeredItems.find(i => i.key === activeItem) || triggeredItems[0]
   if (!item) return null
   const itemResults = results[item.key] || {}
-  const lockedSet = new Set(baseFails[item.key] || [])
+  const baseItem = baseResults[item.key] || {}   // pieces already inspected on the Visual/Technical sample
 
   const pieces = Array.from({ length: lotSize }, (_, i) => i + 1)
-  const checked = pieces.filter(n => lockedSet.has(n) || itemResults[String(n)] !== undefined).length
-  const fails = pieces.filter(n => lockedSet.has(n) || itemResults[String(n)] === 'F').length
+  const verdictOf = (n: number): PFNA | undefined => baseItem[String(n)] ?? itemResults[String(n)]
+  const checked = pieces.filter(n => verdictOf(n) === 'P' || verdictOf(n) === 'F').length
+  const fails = pieces.filter(n => verdictOf(n) === 'F').length
 
   const rows: number[][] = []
   for (let i = 0; i < lotSize; i += 10)
@@ -61,14 +62,15 @@ export default function HundredPctCheck({ inspectionId, lotSize, triggeredItems,
 
       <div className="muted" style={{ marginBottom:10, fontSize:13 }}>
         Checking: <b>{item.label}</b> · Tap <b>P</b> or <b>F</b> to record instantly. Tap the piece number after to add optional photo/video.
-        {lockedSet.size > 0 && <> · 🔒 Pieces that failed the initial check are pre-marked <b style={{ color:'var(--fail)' }}>F</b> and locked — no need to re-inspect.</>}
+        {Object.keys(baseItem).length > 0 && <> · 🔒 Pieces already inspected on the sample (Visual/Technical) are pre-filled with their result and locked — re-inspect only the remaining pieces.</>}
       </div>
 
       {rows.map((row, ri) => (
         <div key={ri} style={{ display:'flex', gap:4, marginBottom:4, flexWrap:'wrap' }}>
           {row.map(n => {
-            const locked = lockedSet.has(n)
-            const val = locked ? 'F' : itemResults[String(n)]
+            const baseV = baseItem[String(n)]
+            const locked = baseV === 'P' || baseV === 'F'   // already inspected on the sample → locked
+            const val = locked ? baseV : itemResults[String(n)]
             return (
               <div key={n} style={{ width:52, border:'1.5px solid var(--line)', borderRadius:8,
                 background: val === 'P' ? 'var(--pass-bg)' : val === 'F' ? 'var(--fail-bg)' : '#fff',

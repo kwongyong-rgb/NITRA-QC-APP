@@ -499,17 +499,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
 
   const triggeredItems = verdicts.filter(v=>v.status==='full_inspection').map(v=>({ key:v.key, label:v.label }))
-  const baseFailsByKey: Record<string, number[]> = (() => {
-    const out: Record<string, number[]> = {}
+  const baseResultsByKey: Record<string, Record<string, PFNA>> = (() => {
+    const out: Record<string, Record<string, PFNA>> = {}
     const scan = (map: Record<string, PFNA> | undefined) => {
       for (const [k, v] of Object.entries(map || {})) {
-        if (v !== 'F') continue
-        const [key, pc] = k.split(':'); const n = Number(pc)
-        if (!n) continue; (out[key] ||= []).push(n)
+        if (v !== 'P' && v !== 'F') continue
+        const [key, pc] = k.split(':'); if (!pc) continue
+        ;(out[key] ||= {})[pc] = v
       }
     }
     scan(insp?.form_data?.results); scan(insp?.form_data?.meas_results)
-    for (const k of Object.keys(out)) out[k] = [...new Set(out[k])].sort((a, b) => a - b)
     return out
   })()
   const nPieces = insp?.app_sample ?? 0
@@ -839,7 +838,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {/* ── 100% CHECK TAB ── */}
       {tab==='100pct' && (
         <HundredPctCheck inspectionId={insp.id} lotSize={insp.lot_size} triggeredItems={triggeredItems}
-          baseFails={baseFailsByKey}
+          baseResults={baseResultsByKey}
           results={(insp.form_data.hundred_pct||{}) as Record<string,Record<string,PFNA>>}
           editable={editable}
           onSave={async (itemKey, pieceNo, result) => {

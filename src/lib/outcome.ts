@@ -60,12 +60,13 @@ export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string
     const baseFails = [...bV.fails, ...bT.fails]
     const ex = scanArr(extraV[key] || extraT[key])
     const h = scanHundred(hundred[key])
-    // Merge per piece so a piece that failed in BOTH the base sample and the
-    // 100% set is counted once. The 100% verdict overrides base for that piece.
+    // Per piece: the 100% set fills in pieces, but the base (Visual/Technical)
+    // verdict is the first authority and OVERRIDES it for any base-inspected
+    // piece — so a base fail can never be flipped to pass by a stray 100% mark.
     const mergedV: Record<number, string> = {}
+    for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v }
     for (const [k, v] of Object.entries(baseV)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
     for (const [k, v] of Object.entries(baseT)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
-    for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v }
     const failPieces = Object.entries(mergedV).filter(([, v]) => v === 'F').map(([pc]) => Number(pc)).sort((a, b) => a - b)
     const checked = Object.keys(mergedV).length
     const fail = failPieces.length
