@@ -25,6 +25,8 @@ interface Insp {
   pallet_data: Record<string, PFNA>
   summary: { remarks?: string; disposition?: string; corrective_action?: string }
   review_note: string
+  amended_at?: string | null; amended_by?: string | null
+  amend_log?: { at: string; by: string; label: string }[]
 }
 interface Photo {
   id: string; storage_path: string; defect_id: string|null
@@ -81,6 +83,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [amendOpen, setAmendOpen] = useState(false)
   const [amendPo, setAmendPo] = useState('')
   const [amendPart, setAmendPart] = useState('')
+  const [amendBatch, setAmendBatch] = useState('')
+  const [amendLot, setAmendLot] = useState(0)
+  const [amendApp, setAmendApp] = useState(0)
+  const [amendFun, setAmendFun] = useState(0)
+  const [histOpen, setHistOpen] = useState(false)
   const [skuOptions, setSkuOptions] = useState<string[]>([])
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
 
@@ -113,8 +120,40 @@ export default function Inspection({ profile }: { profile: Profile }) {
     })
   }, [photos]) // eslint-disable-line
 
-  const editable = !!(insp && (insp.status==='draft'||insp.status==='rejected') && insp.inspector_id===profile.id)
+  const inspectorEditable = !!(insp && (insp.status==='draft'||insp.status==='rejected') && insp.inspector_id===profile.id)
   const canAmend = profile.role === 'approver'
+  const editable = inspectorEditable || canAmend
+
+  // Audit: stamp who/when + a short log when the APPROVER edits a non-draft report
+  const recordAmend = async (label: string, dedupe = false) => {
+    if (!insp || !canAmend || insp.status === 'draft') return
+    const now = new Date().toISOString()
+    const log = Array.isArray(insp.amend_log) ? [...insp.amend_log] : []
+    const last = log[log.length - 1]
+    if (!(dedupe && last && last.label === label)) {
+      log.push({ at: now, by: profile.full_name, label })
+      if (log.length > 50) log.splice(0, log.length - 50)
+    }
+    setInsp(prev => prev ? { ...prev, amended_at: now, amended_by: profile.id, amend_log: log } : prev)
+    try { await supabase.from('inspections').update({ amended_at: now, amended_by: profile.id, amend_log: log }).eq('id', insp.id) } catch { /* non-blocking */ }
+  }
+
+  const resendReport = async () => {
+    if (!insp) return
+    if (!confirm('Re-send the updated report to the saved distribution list?')) return
+    const { data, error } = await supabase.functions.invoke('send-report', { body: { inspection_id: insp.id } })
+    if (error || data?.ok === false) { alert('Re-send failed: ' + (error?.message || data?.error || 'Unknown error')); return }
+    alert('Updated report re-sent.')
+  }
+
+  const changeStatus = async (status: string, label: string, confirmMsg: string) => {
+    if (!insp) return
+    if (!confirm(confirmMsg)) return
+    await recordAmend(label)
+    const { error } = await supabase.from('inspections').update({ status }).eq('id', insp.id)
+    if (error) { alert('Failed: ' + error.message); return }
+    setSubmitMsg(label); load()
+  }
 
   useEffect(() => {
     if (!canAmend) return
@@ -122,7 +161,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
       .then(({ data }) => setSkuOptions((data || []).map((s: { part_no: string }) => s.part_no)))
   }, [canAmend])
 
-  const openAmend = () => { if (!insp) return; setAmendPo(insp.po_no || ''); setAmendPart(insp.part_no || ''); setAmendOpen(true) }
+  const openAmend = () => {
+    if (!insp) return
+    setAmendPo(insp.po_no || ''); setAmendPart(insp.part_no || ''); setAmendBatch(insp.batch || '')
+    setAmendLot(insp.lot_size || 0); setAmendApp(insp.app_sample || 0); setAmendFun(insp.fun_sample || 0)
+    setAmendOpen(true)
+  }
   const applyAmend = async () => {
     if (!insp) return
     const newPart = amendPart.trim()
@@ -131,11 +175,25 @@ export default function Inspection({ profile }: { profile: Profile }) {
       if (error) { alert('Lookup failed: ' + error.message); return }
       if (!s) { alert(`No SKU named "${newPart}" exists. Add/import it first, then amend.`); return }
     }
+    const changes: string[] = []
+    if (amendPo.trim() !== (insp.po_no || '')) changes.push(`PO → ${amendPo.trim() || '(blank)'}`)
+    if (newPart && newPart !== insp.part_no) changes.push(`Part No → ${newPart}`)
+    if (amendBatch.trim() !== (insp.batch || '')) changes.push(`Batch → ${amendBatch.trim() || '(blank)'}`)
+    if (amendLot !== insp.lot_size) changes.push(`Lot size → ${amendLot}`)
+    if (amendApp !== insp.app_sample) changes.push(`App sample → ${amendApp}`)
+    if (amendFun !== insp.fun_sample) changes.push(`Fun sample → ${amendFun}`)
+    const wasApproved = insp.status === 'approved'
     const { error } = await supabase.from('inspections').update({
-      po_no: amendPo.trim(), part_no: newPart || insp.part_no, updated_at: new Date().toISOString(),
+      po_no: amendPo.trim(), part_no: newPart || insp.part_no, batch: amendBatch.trim(),
+      lot_size: amendLot, app_sample: amendApp, fun_sample: amendFun, updated_at: new Date().toISOString(),
     }).eq('id', insp.id)
     if (error) { alert('Amendment failed: ' + error.message); return }
-    setAmendOpen(false); setSubmitMsg('Report amended.'); load()
+    if (changes.length) await recordAmend(changes.join(' · '))
+    setAmendOpen(false); setSubmitMsg('Report amended.'); await load()
+    if (wasApproved && changes.length && confirm('This report was already approved (and likely emailed). Re-send the updated report to the distribution list?')) {
+      const { data, error: e2 } = await supabase.functions.invoke('send-report', { body: { inspection_id: insp.id } })
+      if (e2 || data?.ok === false) alert('Re-send failed: ' + (e2?.message || data?.error || '')); else alert('Updated report re-sent.')
+    }
   }
 
   const saveFd = async (fd: Insp['form_data']) => {
@@ -143,6 +201,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     setInsp({ ...insp, form_data: fd })
     const { error } = await supabase.from('inspections').update({ form_data: fd, updated_at: new Date().toISOString() }).eq('id', insp.id)
     if (error) alert('Save failed: ' + error.message)
+    if (canAmend && insp.status !== 'draft') recordAmend('Edited inspection results', true)
   }
 
   const ensureDefect = async (itemKey: string, itemLabel: string, pieceNo: number, tabName: string) => {
@@ -442,6 +501,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const { data, error } = await supabase.from('photos').delete().eq('id', p.id).select('id')
     if (error) { alert('Delete failed: ' + error.message); return }
     if (!data || data.length === 0) { alert('Delete was blocked by the database (photos RLS). Run migration 06 in the Supabase SQL Editor, then try again.'); return }
+    recordAmend('Deleted a photo')
     load()
   }
 
@@ -488,21 +548,53 @@ export default function Inspection({ profile }: { profile: Profile }) {
         <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {insp.app_sample} · Fun: {insp.fun_sample}</p>
         {insp.status==='rejected' && insp.review_note && <div className="banner bad" style={{ marginTop:8 }}>↩ {insp.review_note}</div>}
         {submitMsg && <div className="banner ok" style={{ marginTop:8 }}>{submitMsg}</div>}
+        {insp.amended_at && (
+          <div className="muted" style={{ fontSize:12, marginTop:6 }}>
+            ✎ Amended by {insp.amend_log?.[insp.amend_log.length-1]?.by || '—'} · {new Date(insp.amended_at).toLocaleString()}
+            {!!insp.amend_log?.length && <button style={{ background:'none', border:'none', color:'var(--navy)', cursor:'pointer', textDecoration:'underline', fontSize:12, marginLeft:6 }} onClick={()=>setHistOpen(o=>!o)}>{histOpen?'hide':'history'}</button>}
+          </div>
+        )}
+        {histOpen && !!insp.amend_log?.length && (
+          <div style={{ marginTop:6, fontSize:12, border:'1px solid var(--line)', borderRadius:8, padding:8, maxHeight:160, overflowY:'auto' }}>
+            {[...insp.amend_log].reverse().map((e,i)=>(
+              <div key={i} style={{ padding:'3px 0', borderBottom:'1px solid var(--line)' }}>
+                <span className="muted">{new Date(e.at).toLocaleString()} · {e.by}</span><br />{e.label}
+              </div>
+            ))}
+          </div>
+        )}
         {canAmend && (
-          <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, marginTop:10 }} onClick={openAmend}>✎ Amend PO / Part No. (approver)</button>
+          <div className="row" style={{ gap:8, marginTop:10, flexWrap:'wrap' }}>
+            <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={openAmend}>✎ Amend details (approver)</button>
+            {insp.status==='submitted' && <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={()=>changeStatus('draft','Returned to inspector','Return this submitted report to the inspector for edits?')}>↩ Return to inspector</button>}
+            {insp.status==='approved' && <>
+              <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={()=>changeStatus('draft','Re-opened to draft','Re-open this approved report to draft for re-work?')}>↩ Re-open to draft</button>
+              <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={resendReport}>📧 Re-send report</button>
+            </>}
+          </div>
         )}
       </div>
 
       {amendOpen && (
         <div className="modal-overlay" onClick={() => setAmendOpen(false)}>
-          <div className="modal" style={{ width:'min(520px,94vw)' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ width:'min(560px,94vw)', maxHeight:'88vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop:0 }}>Amend report</h2>
-            <label className="fld"><span>{t('poNo')}</span>
-              <input className="txt" value={amendPo} onChange={e => setAmendPo(e.target.value)} /></label>
-            <label className="fld" style={{ marginTop:10 }}><span>{t('partNo')}</span>
-              <input className="txt" list="amend-skus" value={amendPart} onChange={e => setAmendPart(e.target.value)} /></label>
+            <div className="grid2">
+              <label className="fld"><span>{t('poNo')}</span>
+                <input className="txt" value={amendPo} onChange={e => setAmendPo(e.target.value)} /></label>
+              <label className="fld"><span>{t('partNo')}</span>
+                <input className="txt" list="amend-skus" value={amendPart} onChange={e => setAmendPart(e.target.value)} /></label>
+              <label className="fld"><span>{t('batch')}</span>
+                <input className="txt" value={amendBatch} onChange={e => setAmendBatch(e.target.value)} /></label>
+              <label className="fld"><span>{t('lotSize')}</span>
+                <input className="txt" type="number" value={amendLot||''} onChange={e => setAmendLot(+e.target.value||0)} /></label>
+              <label className="fld"><span>App sample</span>
+                <input className="txt" type="number" value={amendApp||''} onChange={e => setAmendApp(+e.target.value||0)} /></label>
+              <label className="fld"><span>Fun sample</span>
+                <input className="txt" type="number" value={amendFun||''} onChange={e => setAmendFun(+e.target.value||0)} /></label>
+            </div>
             <datalist id="amend-skus">{skuOptions.map(s => <option key={s} value={s} />)}</datalist>
-            <p className="muted" style={{ fontSize:12, marginTop:8 }}>Changing the part number re-points this report to that SKU’s specs. Recorded results and photos are kept — use the Photos tab to re-assign pictures.</p>
+            <p className="muted" style={{ fontSize:12, marginTop:8 }}>Changing the part number re-points this report to that SKU’s specs. Recorded results and photos are kept — use the Photos tab to re-assign pictures. Amendments are logged.</p>
             <div className="row" style={{ marginTop:14 }}>
               <button className="btn" onClick={applyAmend}>Apply</button>
               <button className="btn ghost" onClick={() => setAmendOpen(false)}>Cancel</button>
@@ -832,7 +924,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
               <option value="pending_customer">{t('dispPendingCustomer')}</option>
             </select>
           </label>
-          {editable && <button className="btn" style={{ width:'100%', marginTop:16 }} onClick={submit}>{t('submit')}</button>}
+          {inspectorEditable && <button className="btn" style={{ width:'100%', marginTop:16 }} onClick={submit}>{t('submit')}</button>}
         </div>
       )}
 
@@ -860,11 +952,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
       )}
       {modal?.type==='reassign' && (
         <ReassignModal photo={modal.photo} allItems={allItemsForReassign} maxPiece={Math.max(insp.app_sample, insp.fun_sample)}
-          onDone={() => { setModal(null); load() }} onClose={() => setModal(null)} />
+          onDone={() => { setModal(null); recordAmend('Re-assigned a photo'); load() }} onClose={() => setModal(null)} />
       )}
       {modal?.type==='copy' && (
         <CopyModal inspectionId={insp.id} photo={modal.photo} allItems={allItemsForReassign}
-          onDone={() => { setModal(null); load() }} onClose={() => setModal(null)} />
+          onDone={() => { setModal(null); recordAmend('Copied a photo'); load() }} onClose={() => setModal(null)} />
       )}
     </div>
   )
