@@ -36,6 +36,7 @@ interface OutcomeRow {
 interface ReportData {
   ok: boolean
   error?: string
+  logoUrl?: string | null
   insp: {
     part_no: string; po_no: string; batch: string; lot_size: number
     app_sample: number; fun_sample: number
@@ -88,7 +89,9 @@ export default function ReportPage() {
   return (
     <div style={{ background: '#F4F7FA', minHeight: '100vh' }}>
       <div style={{ background: 'var(--navy)', color: '#fff', padding: '18px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <img src="/logo-white.png" alt="NITRA" style={{ height: 30 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        {data.logoUrl
+          ? <img src={data.logoUrl} alt="logo" style={{ maxHeight: 40, maxWidth: 220 }} />
+          : <img src="/logo-white.png" alt="NITRA" style={{ height: 30 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>QC Interactive Report</div>
           <div style={{ color: '#9FB6D4', fontSize: 12 }}>Live report with clickable media evidence</div>

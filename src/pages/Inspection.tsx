@@ -27,6 +27,7 @@ interface Insp {
   review_note: string
   amended_at?: string | null; amended_by?: string | null
   amend_log?: { at: string; by: string; label: string }[]
+  report_logo_path?: string | null
 }
 interface Photo {
   id: string; storage_path: string; defect_id: string|null
@@ -89,6 +90,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [amendFun, setAmendFun] = useState(0)
   const [histOpen, setHistOpen] = useState(false)
   const [skuOptions, setSkuOptions] = useState<string[]>([])
+  const [logoUrl, setLogoUrl] = useState('')
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
 
   const load = useCallback(async () => {
@@ -160,6 +162,33 @@ export default function Inspection({ profile }: { profile: Profile }) {
     supabase.from('skus').select('part_no').eq('active', true).order('part_no')
       .then(({ data }) => setSkuOptions((data || []).map((s: { part_no: string }) => s.part_no)))
   }, [canAmend])
+
+  useEffect(() => {
+    if (insp?.report_logo_path) {
+      supabase.storage.from('qc-photos').createSignedUrl(insp.report_logo_path, 3600)
+        .then(({ data }) => setLogoUrl(data?.signedUrl || ''))
+    } else setLogoUrl('')
+  }, [insp?.report_logo_path])
+
+  const uploadLogo = async (file: File) => {
+    if (!insp) return
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+    const path = `logos/${insp.id}-${Date.now()}.${ext}`
+    const { error: upErr } = await supabase.storage.from('qc-photos').upload(path, file, { upsert: true })
+    if (upErr) { alert('Logo upload failed: ' + upErr.message); return }
+    const { error } = await supabase.from('inspections').update({ report_logo_path: path }).eq('id', insp.id)
+    if (error) { alert('Could not save logo: ' + error.message); return }
+    await recordAmend('Changed report logo')
+    setSubmitMsg('Report logo updated.'); load()
+  }
+  const clearLogo = async () => {
+    if (!insp) return
+    if (!confirm('Reset to the default NITRA logo?')) return
+    const { error } = await supabase.from('inspections').update({ report_logo_path: null }).eq('id', insp.id)
+    if (error) { alert('Failed: ' + error.message); return }
+    await recordAmend('Reset report logo to default')
+    setLogoUrl(''); setSubmitMsg('Logo reset to default.'); load()
+  }
 
   const openAmend = () => {
     if (!insp) return
@@ -571,6 +600,17 @@ export default function Inspection({ profile }: { profile: Profile }) {
               <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={()=>changeStatus('draft','Re-opened to draft','Re-open this approved report to draft for re-work?')}>↩ Re-open to draft</button>
               <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={resendReport}>📧 Re-send report</button>
             </>}
+            <label className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, cursor:'pointer' }}>
+              🖼 {insp.report_logo_path ? 'Change report logo' : 'Set report logo'}
+              <input type="file" accept="image/*" hidden onChange={e => { const f=e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value='' }} />
+            </label>
+            {insp.report_logo_path && <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={clearLogo}>Reset logo</button>}
+          </div>
+        )}
+        {canAmend && logoUrl && (
+          <div style={{ marginTop:8 }}>
+            <span className="muted" style={{ fontSize:12 }}>Report logo (shown on the report instead of NITRA):</span><br />
+            <img src={logoUrl} alt="logo" style={{ maxHeight:46, maxWidth:240, marginTop:4, background:'var(--navy)', padding:6, borderRadius:6 }} />
           </div>
         )}
       </div>

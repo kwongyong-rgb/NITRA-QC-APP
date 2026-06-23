@@ -54,10 +54,15 @@ Deno.serve(async (req) => {
     const reportUrl = `${appUrl}/report/${encodeURIComponent(inspection_id)}`
 
     const defectCount = (defects || []).length
+    let logoHtml = '<div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:1px">NITRA</div>'
+    if (insp.report_logo_path) {
+      const { data: lu } = await supa.storage.from('qc-photos').createSignedUrl(insp.report_logo_path, 60 * 60 * 24 * 7)
+      if (lu?.signedUrl) logoHtml = `<img src="${lu.signedUrl}" alt="logo" style="max-height:46px;max-width:260px;display:block" />`
+    }
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:Arial,sans-serif;color:#18222E;max-width:720px;margin:0 auto;padding:20px;background:#F4F7FA">
 <div style="background:#1F3A5F;padding:20px 24px;border-radius:10px 10px 0 0">
-  <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:1px">NITRA</div>
+  ${logoHtml}
   <div style="color:#9FB6D4;font-size:14px;margin-top:4px">QC Interactive Report</div>
 </div>
 <div style="background:${isPass?'#E3F3EA':'#FBE9E7'};border:1px solid ${isPass?'#1F8A4C':'#C0392B'};padding:12px 24px;font-weight:700;font-size:16px;color:${isPass?'#1F8A4C':'#C0392B'}">${esc(disposition)}</div>

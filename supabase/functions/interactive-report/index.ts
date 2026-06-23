@@ -240,8 +240,15 @@ Deno.serve(async (req) => {
     }).filter((o) => o.checked > 0)
       .sort((a, b) => rank(a.outcome) - rank(b.outcome) || a.parameter.localeCompare(b.parameter))
 
+    let logoUrl: string | null = null
+    if (insp.report_logo_path) {
+      const { data: lu } = await supa.storage.from('qc-photos').createSignedUrl(insp.report_logo_path, 60 * 60 * 6)
+      logoUrl = lu?.signedUrl || null
+    }
+
     return json({
       ok: true,
+      logoUrl,
       insp: {
         part_no: insp.part_no,
         po_no: insp.po_no,
