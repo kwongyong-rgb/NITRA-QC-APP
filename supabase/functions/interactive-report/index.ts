@@ -196,11 +196,6 @@ Deno.serve(async (req) => {
       ;(arr || []).forEach((v, i) => { if (v === 'P' || v === 'F') { checked++; if (v === 'F') failIdx.push(i + 1) } })
       return { checked, failIdx }
     }
-    const scanHundred = (map: Record<string, string> | undefined) => {
-      let checked = 0; const fails: number[] = []
-      for (const [pc, v] of Object.entries(map || {})) { if (v === 'P' || v === 'F') { checked++; if (v === 'F') fails.push(Number(pc)) } }
-      return { checked, fails }
-    }
 
     const keySet = new Set<string>()
     for (const k of Object.keys(baseV)) keySet.add(k.split(':')[0])
@@ -214,12 +209,14 @@ Deno.serve(async (req) => {
       const bV = scanBase(baseV, key), bT = scanBase(baseT, key)
       const baseFails = [...bV.fails, ...bT.fails]
       const ex = scanArr(extraV[key] || extraT[key])
-      const h = scanHundred(hundred[key])
-      // Per piece: the 100% set fills in pieces, but the base (Visual/Technical)
-      // verdict is the first authority and OVERRIDES it for any base-inspected
-      // piece — so a base fail can never be flipped to pass by a stray 100% mark.
+      // 100% applies ONLY while the base sample still triggers it (>=2 base fails,
+      // or any extra-sample fail). If the base was later amended so it no longer
+      // qualifies, any earlier 100% data for this parameter is ignored.
+      const triggers100 = baseFails.length >= 2 || ex.failIdx.length >= 1
+      // Per piece: 100% fills pieces in first (only if triggered), then the base
+      // verdict OVERRIDES — base is the first authority and is never overturned.
       const mergedV: Record<number, string> = {}
-      for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v }
+      if (triggers100) { for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v } }
       for (const [k, v] of Object.entries(baseV)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
       for (const [k, v] of Object.entries(baseT)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
       const failPieces = Object.entries(mergedV).filter(([, v]) => v === 'F').map(([pc]) => Number(pc)).sort((a, b) => a - b)
@@ -227,9 +224,7 @@ Deno.serve(async (req) => {
       const fail = failPieces.length
       const dedup = failPieces.map((n) => `#${n}`)
       let outcome: string
-      if (h.checked > 0) outcome = '100% Inspection'
-      else if (baseFails.length >= 2) outcome = '100% Inspection'
-      else if (ex.failIdx.length >= 1) outcome = '100% Inspection'
+      if (triggers100) outcome = '100% Inspection'
       else if (ex.checked > 0) outcome = 'Additional Inspection — Pass'
       else if (baseFails.length === 0) outcome = 'Pass'
       else outcome = 'Additional Inspection Required'
