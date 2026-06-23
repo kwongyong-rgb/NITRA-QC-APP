@@ -60,12 +60,16 @@ export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string
     const baseFails = [...bV.fails, ...bT.fails]
     const ex = scanArr(extraV[key] || extraT[key])
     const h = scanHundred(hundred[key])
-    const checked = bV.checked + bT.checked + h.checked
-    const dedup = [...new Set([
-      ...baseFails.map((n) => `#${n}`),
-      ...h.fails.map((n) => `#${n}`),
-    ])]
-    const fail = baseFails.length + h.fails.length
+    // Merge per piece so a piece that failed in BOTH the base sample and the
+    // 100% set is counted once. The 100% verdict overrides base for that piece.
+    const mergedV: Record<number, string> = {}
+    for (const [k, v] of Object.entries(baseV)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
+    for (const [k, v] of Object.entries(baseT)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
+    for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v }
+    const failPieces = Object.entries(mergedV).filter(([, v]) => v === 'F').map(([pc]) => Number(pc)).sort((a, b) => a - b)
+    const checked = Object.keys(mergedV).length
+    const fail = failPieces.length
+    const dedup = failPieces.map((n) => `#${n}`)
     let outcome: string
     if (h.checked > 0) outcome = '100% Inspection'
     else if (baseFails.length >= 2) outcome = '100% Inspection'
