@@ -140,16 +140,6 @@ Deno.serve(async (req) => {
       return pa.localeCompare(pb) || Number(a.piece_no || 0) - Number(b.piece_no || 0)
     })
 
-    const defectRows = sortedDefects.map((d: any) => {
-      const p = firstPhotoForDefect(d)
-      return {
-        parameter: d.item_label || labelOf(d.item_key) || '—',
-        pieceLabel: pieceLabel(d.piece_no),
-        mediaUrl: p ? mediaUrls[p.storage_path] || null : null,
-        mediaType: p?.media_type || null,
-      }
-    })
-
     const photosByParam = new Map<string, any[]>()
     for (const p of photos) {
       const key = p.item_key || p.checklist_key || 'required_shots'
@@ -205,6 +195,7 @@ Deno.serve(async (req) => {
     for (const k of Object.keys(hundred)) keySet.add(k)
 
     const rank = (o: string) => (o === '100% Inspection' ? 0 : o.startsWith('Additional') ? 1 : 2)
+    const liveFails = new Set<string>()
     const outcomes = [...keySet].map((key) => {
       const bV = scanBase(baseV, key), bT = scanBase(baseT, key)
       const baseFails = [...bV.fails, ...bT.fails]
@@ -223,6 +214,7 @@ Deno.serve(async (req) => {
       const checked = Object.keys(mergedV).length
       const fail = failPieces.length
       const dedup = failPieces.map((n) => `#${n}`)
+      for (const pc of failPieces) liveFails.add(`${key}:${pc}`)
       let outcome: string
       if (baseFails.length === 0) outcome = 'Pass'
       else if (triggers100) outcome = '100% Inspection'
@@ -238,6 +230,23 @@ Deno.serve(async (req) => {
       }
     }).filter((o) => o.checked > 0)
       .sort((a, b) => rank(a.outcome) - rank(b.outcome) || a.parameter.localeCompare(b.parameter))
+
+    // Only defects that correspond to a CURRENTLY-failing piece (filters out
+    // orphaned rows left over from amended-away fails / old 100% data), one per piece.
+    const seenDefect = new Set<string>()
+    const defectRows = sortedDefects
+      .filter((d: any) => liveFails.has(`${d.item_key}:${Number(d.piece_no)}`))
+      .filter((d: any) => { const k = `${d.item_key}:${Number(d.piece_no)}`; if (seenDefect.has(k)) return false; seenDefect.add(k); return true })
+      .map((d: any) => {
+        const p = firstPhotoForDefect(d)
+        return {
+          parameter: d.item_label || labelOf(d.item_key) || '—',
+          pieceLabel: pieceLabel(d.piece_no),
+          mediaUrl: p ? mediaUrls[p.storage_path] || null : null,
+          mediaType: p?.media_type || null,
+        }
+      })
+    const defectCount = liveFails.size
 
     let logoUrl: string | null = null
     if (insp.report_logo_path) {
@@ -265,6 +274,7 @@ Deno.serve(async (req) => {
       inspectorName: names[insp.inspector_id] || '—',
       reviewerName: insp.reviewed_by ? (names[insp.reviewed_by] || '—') : '—',
       defects: defectRows,
+      defectCount,
       photoGroups,
       outcomes,
     })

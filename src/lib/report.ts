@@ -29,7 +29,7 @@ const esc = (s: unknown) =>
 
 const DISPOSITION: Record<string, { en: string; zh: string; cls: 'pass' | 'hold' | 'fail' }> = {
   approved_loading:    { en: 'APPROVED FOR LOADING',     zh: '批准装柜',     cls: 'pass' },
-  hold_rework:         { en: 'HOLD FOR REWORK & REINSPECTION', zh: '暂停 — 返工与复检', cls: 'fail' },
+  hold_rework:         { en: 'HOLD FOR REWORK & REINSPECTION', zh: '暂停 — 返工与复检', cls: 'hold' },
   conditional_loading: { en: 'CONDITIONAL LOADING — FAILED PIECES EXCLUDED', zh: '有条件装柜 — 剔除不合格件', cls: 'hold' },
   conditional_rework:  { en: 'CONDITIONAL LOADING — REWORK REJECTED PIECES & LOAD', zh: '有条件装柜 — 返工不合格件后装柜', cls: 'hold' },
   pending_customer:    { en: 'PENDING CUSTOMER APPROVAL', zh: '待客户批准',   cls: 'hold' },

@@ -53,11 +53,36 @@ Deno.serve(async (req) => {
     const appUrl = (Deno.env.get('PUBLIC_APP_URL') || 'https://nitra-qc-app.vercel.app').replace(/\/$/, '')
     const reportUrl = `${appUrl}/report/${encodeURIComponent(inspection_id)}`
 
-    const defectCount = (defects || []).length
+    // Count CURRENTLY-failing pieces (matches the report), not raw defect rows —
+    // the defects table can hold orphaned rows from amended-away fails / old 100% data.
+    const fd = insp.form_data || {}
+    const baseV: Record<string, string> = fd.results || {}
+    const baseT: Record<string, string> = fd.meas_results || {}
+    const extraV: Record<string, string[]> = fd.extra_results || {}
+    const extraT: Record<string, string[]> = fd.meas_extra_results || {}
+    const hundred: Record<string, Record<string, string>> = fd.hundred_pct || {}
+    const keys = new Set<string>()
+    for (const k of Object.keys(baseV)) keys.add(k.split(':')[0])
+    for (const k of Object.keys(baseT)) keys.add(k.split(':')[0])
+    for (const k of Object.keys(hundred)) keys.add(k)
+    let defectCount = 0
+    for (const key of keys) {
+      let baseFailN = 0
+      for (const [k, v] of Object.entries(baseV)) if (k.split(':')[0] === key && v === 'F') baseFailN++
+      for (const [k, v] of Object.entries(baseT)) if (k.split(':')[0] === key && v === 'F') baseFailN++
+      const exFail = (extraV[key] || extraT[key] || []).some((v: string) => v === 'F')
+      const triggers100 = baseFailN >= 2 || (baseFailN >= 1 && exFail)
+      const merged: Record<number, string> = {}
+      if (triggers100) for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') merged[Number(pc)] = v }
+      for (const [k, v] of Object.entries(baseV)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) merged[Number(k.split(':')[1])] = v }
+      for (const [k, v] of Object.entries(baseT)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) merged[Number(k.split(':')[1])] = v }
+      defectCount += Object.values(merged).filter((v) => v === 'F').length
+    }
+    void defects
     let logoHtml = '<div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:1px">NITRA</div>'
     if (insp.report_logo_path) {
       const { data: lu } = await supa.storage.from('qc-photos').createSignedUrl(insp.report_logo_path, 60 * 60 * 24 * 7)
-      if (lu?.signedUrl) logoHtml = `<img src="${lu.signedUrl}" alt="logo" style="max-height:46px;max-width:260px;display:block" />`
+      if (lu?.signedUrl) logoHtml = `<span style="display:inline-block;background:#fff;border-radius:8px;padding:7px 12px"><img src="${lu.signedUrl}" alt="logo" style="max-height:40px;max-width:220px;display:block" /></span>`
     }
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:Arial,sans-serif;color:#18222E;max-width:720px;margin:0 auto;padding:20px;background:#F4F7FA">
@@ -65,7 +90,7 @@ Deno.serve(async (req) => {
   ${logoHtml}
   <div style="color:#9FB6D4;font-size:14px;margin-top:4px">QC Interactive Report</div>
 </div>
-<div style="background:${isPass?'#E3F3EA':isPending?'#EEF1F5':'#FBE9E7'};border:1px solid ${isPass?'#1F8A4C':isPending?'#9FB0C0':'#C0392B'};padding:12px 24px;font-weight:700;font-size:16px;color:${isPass?'#1F8A4C':isPending?'#5A6878':'#C0392B'}">${esc(disposition)}</div>
+<div style="background:${isPass?'#E3F3EA':isPending?'#EEF1F5':'#FBF3E2'};border:1px solid ${isPass?'#1F8A4C':isPending?'#9FB0C0':'#B7791F'};padding:12px 24px;font-weight:700;font-size:16px;color:${isPass?'#1F8A4C':isPending?'#5A6878':'#8A5A0E'}">${esc(disposition)}</div>
 <div style="background:#fff;border:1px solid #D5DBE4;border-top:none;padding:22px 24px">
   <p style="margin-top:0">A NITRA QC inspection report is ready for review. Click the button below to open the live interactive report with clickable photo/video evidence.</p>
   <table style="width:100%;border-collapse:collapse;margin:14px 0 20px">

@@ -53,7 +53,7 @@ interface ReportData {
 
 const DISPOSITION: Record<string, { text: string; cls: string }> = {
   approved_loading: { text: 'APPROVED FOR LOADING', cls: 'pass' },
-  hold_rework: { text: 'HOLD FOR REWORK & REINSPECTION', cls: 'fail' },
+  hold_rework: { text: 'HOLD FOR REWORK & REINSPECTION', cls: 'hold' },
   conditional_loading: { text: 'CONDITIONAL LOADING — FAILED PIECES EXCLUDED', cls: 'hold' },
   conditional_rework: { text: 'CONDITIONAL LOADING — REWORK REJECTED PIECES & LOAD', cls: 'hold' },
   pending_customer: { text: 'PENDING CUSTOMER APPROVAL', cls: 'hold' },
@@ -85,19 +85,29 @@ export default function ReportPage() {
 
   return (
     <div style={{ background: '#F4F7FA', minHeight: '100vh' }}>
-      <div style={{ background: 'var(--navy)', color: '#fff', padding: '18px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {data.logoUrl
-          ? <img src={data.logoUrl} alt="logo" style={{ maxHeight: 40, maxWidth: 220 }} />
-          : <img src="/logo-white.png" alt="NITRA" style={{ height: 30 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>QC Interactive Report</div>
-          <div style={{ color: '#9FB6D4', fontSize: 12 }}>Live report with clickable media evidence</div>
+      <header style={{ background: 'var(--navy)', color: '#fff' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {data.logoUrl
+              ? <span style={{ background: '#fff', borderRadius: 10, padding: '8px 14px', display: 'inline-flex', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,.22)' }}>
+                  <img src={data.logoUrl} alt="logo" style={{ height: 40, maxWidth: 220, objectFit: 'contain', display: 'block' }} />
+                </span>
+              : <img src="/logo-white.png" alt="NITRA" style={{ height: 32 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+            <div style={{ borderLeft: '1px solid rgba(255,255,255,.22)', paddingLeft: 16 }}>
+              <div style={{ fontWeight: 800, fontSize: 17, letterSpacing: .3 }}>QC Interactive Report</div>
+              <div style={{ color: '#9FB6D4', fontSize: 12, marginTop: 2 }}>Live report · clickable photo &amp; video evidence</div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', maxWidth: 360 }}>
+            <span style={{ background: bannerBg, color: bannerColor, borderRadius: 8, padding: '8px 14px', fontWeight: 800, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, lineHeight: 1.3, boxShadow: '0 2px 8px rgba(0,0,0,.16)' }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: bannerColor, display: 'inline-block', flexShrink: 0 }} />
+              {disp.text}
+            </span>
+            <div style={{ color: '#9FB6D4', fontSize: 11, marginTop: 6 }}>Viewed {new Date().toLocaleString()}</div>
+          </div>
         </div>
-      </div>
-      <div style={{ background: bannerBg, color: bannerColor, padding: '12px 24px', fontWeight: 800, display: 'flex', justifyContent: 'space-between' }}>
-        <span>{disp.text}</span>
-        <small style={{ fontWeight: 600 }}>Viewed {new Date().toLocaleString()}</small>
-      </div>
+        <div style={{ height: 4, background: bannerColor }} />
+      </header>
 
       <main style={{ maxWidth: 1100, margin: '22px auto', padding: '0 14px' }}>
         <section style={card}>
