@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
     let logoHtml = '<div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:1px">NITRA</div>'
     if (insp.report_logo_path) {
       const { data: lu } = await supa.storage.from('qc-photos').createSignedUrl(insp.report_logo_path, 60 * 60 * 24 * 7)
-      if (lu?.signedUrl) logoHtml = `<span style="display:inline-block;background:#fff;border-radius:8px;padding:7px 12px"><img src="${lu.signedUrl}" alt="logo" style="max-height:40px;max-width:220px;display:block" /></span>`
+      if (lu?.signedUrl) logoHtml = `<img src="${lu.signedUrl}" alt="logo" style="max-height:46px;max-width:240px;display:block" />`
     }
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:Arial,sans-serif;color:#18222E;max-width:720px;margin:0 auto;padding:20px;background:#F4F7FA">

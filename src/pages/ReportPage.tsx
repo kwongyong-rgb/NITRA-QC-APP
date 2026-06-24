@@ -89,9 +89,7 @@ export default function ReportPage() {
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {data.logoUrl
-              ? <span style={{ background: '#fff', borderRadius: 10, padding: '8px 14px', display: 'inline-flex', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,.22)' }}>
-                  <img src={data.logoUrl} alt="logo" style={{ height: 40, maxWidth: 220, objectFit: 'contain', display: 'block' }} />
-                </span>
+              ? <img src={data.logoUrl} alt="logo" style={{ height: 46, maxWidth: 240, objectFit: 'contain', display: 'block' }} />
               : <img src="/logo-white.png" alt="NITRA" style={{ height: 32 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
             <div style={{ borderLeft: '1px solid rgba(255,255,255,.22)', paddingLeft: 16 }}>
               <div style={{ fontWeight: 800, fontSize: 17, letterSpacing: .3 }}>QC Interactive Report</div>
