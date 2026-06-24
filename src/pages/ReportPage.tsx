@@ -86,25 +86,27 @@ export default function ReportPage() {
   return (
     <div style={{ background: '#F4F7FA', minHeight: '100vh' }}>
       <header style={{ background: 'var(--navy)', color: '#fff' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '18px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {data.logoUrl
               ? <img src={data.logoUrl} alt="logo" style={{ height: 46, maxWidth: 240, objectFit: 'contain', display: 'block' }} />
               : <img src="/logo-white.png" alt="NITRA" style={{ height: 32 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
             <div style={{ borderLeft: '1px solid rgba(255,255,255,.22)', paddingLeft: 16 }}>
-              <div style={{ fontWeight: 800, fontSize: 17, letterSpacing: .3 }}>QC Interactive Report</div>
+              <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: .3 }}>QC Interactive Report</div>
               <div style={{ color: '#9FB6D4', fontSize: 12, marginTop: 2 }}>Live report · clickable photo &amp; video evidence</div>
             </div>
           </div>
-          <div style={{ textAlign: 'right', maxWidth: 360 }}>
-            <span style={{ background: bannerBg, color: bannerColor, borderRadius: 8, padding: '8px 14px', fontWeight: 800, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, lineHeight: 1.3, boxShadow: '0 2px 8px rgba(0,0,0,.16)' }}>
-              <span style={{ width: 9, height: 9, borderRadius: 999, background: bannerColor, display: 'inline-block', flexShrink: 0 }} />
-              {disp.text}
-            </span>
-            <div style={{ color: '#9FB6D4', fontSize: 11, marginTop: 6 }}>Viewed {new Date().toLocaleString()}</div>
+          <div style={{ color: '#9FB6D4', fontSize: 11.5, textAlign: 'right', whiteSpace: 'nowrap' }}>Viewed {new Date().toLocaleString()}</div>
+        </div>
+        <div style={{ background: bannerBg, borderTop: `3px solid ${bannerColor}` }}>
+          <div style={{ maxWidth: 1100, margin: '0 auto', padding: '11px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 999, background: bannerColor, flexShrink: 0 }} />
+              <span style={{ color: bannerColor, fontWeight: 800, fontSize: 15, lineHeight: 1.25 }}>{disp.text}</span>
+            </div>
+            <span style={{ color: bannerColor, opacity: .6, fontWeight: 700, fontSize: 10.5, letterSpacing: 1.4, whiteSpace: 'nowrap' }}>FINAL DISPOSITION</span>
           </div>
         </div>
-        <div style={{ height: 4, background: bannerColor }} />
       </header>
 
       <main style={{ maxWidth: 1100, margin: '22px auto', padding: '0 14px' }}>
@@ -137,9 +139,34 @@ export default function ReportPage() {
 
         <section style={card}>
           <h2 style={h2}>Inspection Evaluation Criteria</h2>
-          <p><b>Visual:</b> ≤100 pcs inspect 8; each additional 100 pcs inspect +4. If 1 piece fails for a specific defect, inspect +4 for that defect; if the same defect fails again, conduct 100% inspection. If 2+ pieces fail in the initial sample, conduct 100% inspection immediately.</p>
-          <p><b>Technical:</b> ≤100 pcs inspect 4; each additional 100 pcs inspect +2. If 1 piece fails for a specific defect, inspect +2 for that defect; if the same defect fails again, conduct 100% inspection. If 2+ pieces fail in the initial sample, conduct 100% inspection immediately.</p>
-          <p style={{ marginBottom: 0 }}>100% inspection applies only to the specific defect/parameter that triggered the rule.</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+            {[{ title: 'Visual', base: 8, add: 4 }, { title: 'Technical', base: 4, add: 2 }].map(c => (
+              <div key={c.title} style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ background: 'var(--navy)', color: '#fff', padding: '8px 14px', fontWeight: 700 }}>{c.title}</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--ink-soft)', verticalAlign: 'top', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Sample size</td>
+                      <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--line)' }}>≤100 pcs → inspect <b>{c.base}</b>; <b>+{c.add}</b> for each additional 100 pcs</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--ink-soft)', verticalAlign: 'top', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>1 piece fails</td>
+                      <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--line)' }}>inspect <b>+{c.add}</b> more for that specific defect</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--ink-soft)', verticalAlign: 'top', whiteSpace: 'nowrap', borderBottom: '1px solid var(--line)' }}>Same defect fails again</td>
+                      <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--line)' }}><b style={{ color: 'var(--fail)' }}>100% inspection</b></td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--ink-soft)', verticalAlign: 'top', whiteSpace: 'nowrap' }}>2+ fail in initial sample</td>
+                      <td style={{ padding: '9px 14px' }}><b style={{ color: 'var(--fail)' }}>100% inspection</b> immediately</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+          <p style={{ marginTop: 12, marginBottom: 0, fontSize: 13, color: 'var(--ink-soft)' }}>100% inspection applies only to the specific defect / parameter that triggered the rule.</p>
         </section>
 
         <section style={card}>

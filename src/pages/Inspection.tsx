@@ -170,11 +170,44 @@ export default function Inspection({ profile }: { profile: Profile }) {
     } else setLogoUrl('')
   }, [insp?.report_logo_path])
 
-  const uploadLogo = async (file: File) => {
+  // Make the logo's solid background transparent (samples the corners, keys out that
+  // colour) so the logo's lettering blends onto the report's navy header.
+  const removeLogoBackground = (file: File): Promise<Blob> => new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const cv = document.createElement('canvas')
+      cv.width = img.naturalWidth; cv.height = img.naturalHeight
+      const ctx = cv.getContext('2d')
+      if (!ctx) { reject(new Error('no canvas')); return }
+      ctx.drawImage(img, 0, 0)
+      const imgData = ctx.getImageData(0, 0, cv.width, cv.height)
+      const px = imgData.data
+      const corners = [[0, 0], [cv.width - 1, 0], [0, cv.height - 1], [cv.width - 1, cv.height - 1]]
+        .map(([x, y]) => { const i = (y * cv.width + x) * 4; return [px[i], px[i + 1], px[i + 2]] })
+      const bg = [0, 1, 2].map(c => Math.round(corners.reduce((s, k) => s + k[c], 0) / corners.length))
+      const tol = 70
+      for (let i = 0; i < px.length; i += 4) {
+        const d = Math.sqrt((px[i] - bg[0]) ** 2 + (px[i + 1] - bg[1]) ** 2 + (px[i + 2] - bg[2]) ** 2)
+        if (d < tol) px[i + 3] = 0
+      }
+      ctx.putImageData(imgData, 0, 0)
+      cv.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png')
+    }
+    img.onerror = () => reject(new Error('image load failed'))
+    img.src = URL.createObjectURL(file)
+  })
+
+  const uploadLogo = async (file: File, cutBg = false) => {
     if (!insp) return
-    const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+    let body: Blob = file
+    let ext = (file.name.split('.').pop() || 'png').toLowerCase()
+    let contentType = file.type || 'image/png'
+    if (cutBg) {
+      try { body = await removeLogoBackground(file); ext = 'png'; contentType = 'image/png' }
+      catch { alert('Could not remove the background; uploading the original instead.') }
+    }
     const path = `logos/${insp.id}-${Date.now()}.${ext}`
-    const { error: upErr } = await supabase.storage.from('qc-photos').upload(path, file, { upsert: true })
+    const { error: upErr } = await supabase.storage.from('qc-photos').upload(path, body, { upsert: true, contentType })
     if (upErr) { alert('Logo upload failed: ' + upErr.message); return }
     const { error } = await supabase.from('inspections').update({ report_logo_path: path }).eq('id', insp.id)
     if (error) { alert('Could not save logo: ' + error.message); return }
@@ -246,6 +279,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
   const removeDefect = async (itemKey: string, pieceNo: number, tabName: string) => {
     if (!insp) return
+    // Detach photos from the defect FIRST so the defect's cascade-delete can't remove
+    // them; they survive and become pass photos (never deleted on a Fail→Pass change).
+    const { error: pErr } = await supabase.from('photos').update({ defect_id: null, is_pass_photo: true })
+      .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo)
+    if (pErr) console.error('photo detach failed', pErr)
     await supabase.from('defects').delete()
       .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tabName)
   }
@@ -295,8 +333,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (old==='F' && val!=='F') await removeDefect(itemKey, pieceNo, tabName)
     // Keep any photos for this piece in sync with the new verdict (never delete them)
     if (val==='P' || val==='F') {
-      await supabase.from('photos').update({ is_pass_photo: val==='P' })
-        .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tabName)
+      const { error: pErr } = await supabase.from('photos').update({ is_pass_photo: val==='P' })
+        .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo)
+      if (pErr) console.error('photo sync failed', pErr)
     }
     load()
   }
@@ -618,6 +657,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
             <label className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, cursor:'pointer' }}>
               🖼 {insp.report_logo_path ? 'Change report logo' : 'Set report logo'}
               <input type="file" accept="image/*" hidden onChange={e => { const f=e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value='' }} />
+            </label>
+            <label className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, cursor:'pointer' }} title="Uploads the logo with its solid background made transparent, so it blends onto the navy report header">
+              🪄 Logo · cut out background
+              <input type="file" accept="image/*" hidden onChange={e => { const f=e.target.files?.[0]; if (f) uploadLogo(f, true); (e.target as HTMLInputElement).value='' }} />
             </label>
             {insp.report_logo_path && <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={clearLogo}>Reset logo</button>}
           </div>
