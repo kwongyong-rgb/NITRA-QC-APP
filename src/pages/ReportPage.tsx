@@ -172,7 +172,7 @@ export default function ReportPage() {
             const secs = APPENDIX_TITLES.map(title => {
               const params = data.photoGroups
                 .map(g => ({ key: g.key, label: g.label, photos: g.photos.filter(p => p.isPass === pass) }))
-                .filter(g => g.photos.length && (SECTION_OF[g.key] || 'Other') === title)
+                .filter(g => g.photos.length && g.key !== 'appendix' && (SECTION_OF[g.key] || 'Other') === title)
               return { title, params }
             }).filter(s => s.params.length)
             return (
@@ -210,6 +210,29 @@ export default function ReportPage() {
               </div>
             )
           })}
+          {(() => {
+            const appx = data.photoGroups.find(g => g.key === 'appendix')
+            if (!appx || !appx.photos.length) return null
+            return (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ background: 'var(--navy)', color: '#fff', borderRadius: 8, padding: '7px 13px', fontWeight: 700 }}>Appendix — Additional Photos</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, marginTop: 10 }}>
+                  {appx.photos.map((p, pi) => (
+                    <figure key={pi} style={{ margin: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                      {p.mediaUrl ? (
+                        <button onClick={() => setLightbox({ url: p.mediaUrl!, type: p.mediaType })}
+                          style={{ width: '100%', height: 110, border: 0, background: '#EEF1F5', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {p.mediaType === 'video' ? <span style={{ fontSize: 32, color: 'var(--navy)' }}>▶</span>
+                            : <img src={p.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                        </button>
+                      ) : <div style={{ width: '100%', height: 110, background: '#EEF1F5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>No media</div>}
+                      {p.comment && <figcaption style={{ fontSize: 11, color: 'var(--ink-soft)', padding: 8 }}>{p.comment}</figcaption>}
+                    </figure>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
         </section>
       </main>
 

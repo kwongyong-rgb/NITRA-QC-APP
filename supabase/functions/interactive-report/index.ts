@@ -140,31 +140,6 @@ Deno.serve(async (req) => {
       return pa.localeCompare(pb) || Number(a.piece_no || 0) - Number(b.piece_no || 0)
     })
 
-    const photosByParam = new Map<string, any[]>()
-    for (const p of photos) {
-      const key = p.item_key || p.checklist_key || 'required_shots'
-      if (!photosByParam.has(key)) photosByParam.set(key, [])
-      photosByParam.get(key)!.push(p)
-    }
-    const photoGroups = [...photosByParam.entries()].map(([key, list]) => {
-      const sorted = [...list].sort((a: any, b: any) => {
-        const passSort = Number(b.is_pass_photo) - Number(a.is_pass_photo) // pass photos first
-        if (passSort !== 0) return passSort
-        return Number(a.piece_no || 0) - Number(b.piece_no || 0)
-      })
-      return {
-        key,
-        label: labelOf(key),
-        photos: sorted.map((p: any) => ({
-          isPass: !!p.is_pass_photo,
-          pieceLabel: p.piece_no ? pieceLabel(p.piece_no) : 'Required photo',
-          mediaUrl: mediaUrls[p.storage_path] || null,
-          mediaType: p.media_type || 'photo',
-          comment: p.comment || '',
-        })),
-      }
-    })
-
     // ---- Inspection Outcome (one row per inspected parameter) ----
     const fdata = insp.form_data || {}
     const baseV: Record<string, string> = fdata.results || {}
@@ -247,6 +222,35 @@ Deno.serve(async (req) => {
         }
       })
     const defectCount = liveFails.size
+
+    // Photo appendix groups. A photo's Pass/Fail follows the CURRENT verdict of its
+    // piece (so amended F→P / P→F is reflected without deleting anything). Photos with
+    // no piece (required shots, appendix) keep their saved flag.
+    const photoPass = (p: any, key: string) => (p.piece_no ? !liveFails.has(`${key}:${Number(p.piece_no)}`) : !!p.is_pass_photo)
+    const photosByParam = new Map<string, any[]>()
+    for (const p of photos) {
+      const key = p.item_key || p.checklist_key || 'required_shots'
+      if (!photosByParam.has(key)) photosByParam.set(key, [])
+      photosByParam.get(key)!.push(p)
+    }
+    const photoGroups = [...photosByParam.entries()].map(([key, list]) => {
+      const sorted = [...list].sort((a: any, b: any) => {
+        const passSort = Number(photoPass(b, key)) - Number(photoPass(a, key))
+        if (passSort !== 0) return passSort
+        return Number(a.piece_no || 0) - Number(b.piece_no || 0)
+      })
+      return {
+        key,
+        label: key === 'appendix' ? 'Appendix' : labelOf(key),
+        photos: sorted.map((p: any) => ({
+          isPass: photoPass(p, key),
+          pieceLabel: p.piece_no ? pieceLabel(p.piece_no) : 'Photo',
+          mediaUrl: mediaUrls[p.storage_path] || null,
+          mediaType: p.media_type || 'photo',
+          comment: p.comment || '',
+        })),
+      }
+    })
 
     let logoUrl: string | null = null
     if (insp.report_logo_path) {

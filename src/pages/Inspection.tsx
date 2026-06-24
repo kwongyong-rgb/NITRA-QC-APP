@@ -5,7 +5,7 @@ import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
-import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb } from '../components/PhotoModal'
+import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb, MediaCapture } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
 import HundredPctCheck from '../components/HundredPctCheck'
 import { REF_MAP } from '../lib/refmap'
@@ -293,6 +293,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const tabName = isMeas ? 'measure' : 'form'
     if (val==='F' && old!=='F') await ensureDefect(itemKey, itemLabel, pieceNo, tabName)
     if (old==='F' && val!=='F') await removeDefect(itemKey, pieceNo, tabName)
+    // Keep any photos for this piece in sync with the new verdict (never delete them)
+    if (val==='P' || val==='F') {
+      await supabase.from('photos').update({ is_pass_photo: val==='P' })
+        .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tabName)
+    }
     load()
   }
 
@@ -530,6 +535,17 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (error) { alert('Delete failed: ' + error.message); return }
     if (!data || data.length === 0) { alert('Delete was blocked by the database (photos RLS). Run migration 06 in the Supabase SQL Editor, then try again.'); return }
     recordAmend('Deleted a photo')
+    load()
+  }
+
+  const addAppendixPhoto = async (path: string, type: 'photo'|'video') => {
+    if (!insp) return
+    const { error } = await supabase.from('photos').insert({
+      inspection_id: insp.id, storage_path: path, media_type: type,
+      is_pass_photo: true, item_key: 'appendix', piece_no: 0, comment: '',
+    })
+    if (error) { alert('Could not add appendix photo: ' + error.message); return }
+    recordAmend('Added an appendix photo')
     load()
   }
 
@@ -832,10 +848,41 @@ export default function Inspection({ profile }: { profile: Profile }) {
               })}
             </div>
           ))}
+
+          {/* Appendix — extra photos not tied to any inspection parameter */}
+          <div style={{ marginTop:20 }}>
+            <div style={{ background:'var(--navy)', color:'#fff', borderRadius:8, padding:'9px 14px', fontWeight:700, fontFamily:'var(--display)' }}>Appendix — Additional Photos</div>
+            <p className="muted" style={{ fontSize:12, margin:'8px 0 10px' }}>Extra photos or videos not related to any inspection parameter (shown in a dedicated Appendix on the report).</p>
+            {(editable || canAmend) && (
+              <div style={{ maxWidth:340, marginBottom:12 }}>
+                <MediaCapture label="Add appendix photo" onUploaded={addAppendixPhoto} />
+              </div>
+            )}
+            {(() => {
+              const appx = photos.filter(p => p.item_key === 'appendix')
+              return appx.length ? (
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  {appx.map(p => {
+                    const url = photoUrls[p.storage_path]
+                    return (
+                      <div key={p.id} style={{ position:'relative' }}>
+                        <div style={{ border:'2px solid var(--line)', borderRadius:10, overflow:'hidden', cursor:'pointer' }}
+                          onClick={() => url && setModal({ type:'preview', url, mediaType:p.media_type })}>
+                          <MediaThumb path={p.storage_path} type={p.media_type} url={url||''} />
+                        </div>
+                        {(editable || canAmend) && (
+                          <button title="Delete" style={{ position:'absolute', top:4, right:4, background:'rgba(204,17,34,.85)', color:'#fff', border:'none', borderRadius:6, padding:'2px 6px', fontSize:11, cursor:'pointer' }}
+                            onClick={() => deletePhoto(p)}>🗑</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : <span className="muted" style={{ fontSize:12 }}>— no appendix photos —</span>
+            })()}
+          </div>
         </div>
       )}
-
-      {/* ── 100% CHECK TAB ── */}
       {tab==='100pct' && (
         <HundredPctCheck inspectionId={insp.id} lotSize={insp.lot_size} triggeredItems={triggeredItems}
           baseResults={baseResultsByKey}
