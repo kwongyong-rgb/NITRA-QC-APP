@@ -12,6 +12,7 @@ import Skus from './pages/Skus'
 import RefLibrary from './pages/RefLibrary'
 import ReportPage from './pages/ReportPage'
 import PoReportPage from './pages/PoReportPage'
+import ContainerReportPage from './pages/ContainerReportPage'
 import ContainerLoading from './pages/ContainerLoading'
 import PoHub from './pages/PoHub'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -26,7 +27,7 @@ export default function App() {
   const location = useLocation()
   // Recipients of an emailed report link are not logged-in NITRA staff, so this
   // one route must never go through the login wall below.
-  const isPublicReport = location.pathname.startsWith('/report/') || location.pathname.startsWith('/po-report/')
+  const isPublicReport = location.pathname.startsWith('/report/') || location.pathname.startsWith('/po-report/') || location.pathname.startsWith('/container-report/')
 
   useEffect(() => {
     if (isPublicReport) return
@@ -49,6 +50,7 @@ export default function App() {
         <Routes>
           <Route path="/report/:id" element={<ReportPage />} />
           <Route path="/po-report/:po" element={<PoReportPage />} />
+          <Route path="/container-report/:id" element={<ContainerReportPage />} />
         </Routes>
       </ErrorBoundary>
     )

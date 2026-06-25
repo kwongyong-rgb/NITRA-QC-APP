@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { PALLET_PACKING_ITEMS, CONTAINER_PHOTO_ITEMS } from '../lib/standard'
 import { MediaCapture, MediaThumb } from '../components/PhotoModal'
+import { openContainerReport } from '../lib/report'
 import type { Profile } from '../App'
 
 type PFNA = 'P' | 'F' | 'NA' | undefined
@@ -13,7 +14,7 @@ interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number
 interface CL {
   id: string; po_no: string; container_no: string; seal_no: string
   status: string; insp_status: string; inspector_id: string
-  data: CLData; summary: { disposition?: string; corrective_action?: string }; review_note: string
+  data: CLData; summary: { disposition?: string; corrective_action?: string }; review_note: string; report_logo_path?: string
 }
 interface Photo { id: string; storage_path: string; media_type: string; item_key: string; piece_no: number; is_pass_photo: boolean }
 
@@ -145,11 +146,14 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const palletContents = pallets.map(n => ({ n, contents: (palletOf(n).contents || []).filter(c => c.part_no) })).filter(x => x.contents.length)
 
   const submit = async () => {
-    const missing: string[] = []
-    if (!cl.container_no.trim()) missing.push('Container number')
-    for (const item of CONTAINER_PHOTO_ITEMS) if (photosFor(item.key, 0).length === 0) missing.push(bi(item.label) + ' (photo)')
-    if (loadingType === 'pallet') for (const n of pallets) if (photosFor('pallet_label', n).length === 0) missing.push(`Pallet ${n} — label photo`)
-    if (missing.length) { alert('Cannot submit — these are required first:\n\n• ' + missing.join('\n• ')); return }
+    if (!cl.container_no.trim()) { alert('Container number is required before submitting.'); return }
+    const missingPhotos: string[] = []
+    for (const item of CONTAINER_PHOTO_ITEMS) if (photosFor(item.key, 0).length === 0) missingPhotos.push(bi(item.label))
+    if (loadingType === 'pallet') for (const n of pallets) if (photosFor('pallet_label', n).length === 0) missingPhotos.push(`Pallet ${n} — label`)
+    if (missingPhotos.length) {
+      const ok = confirm(`The following inspection items have no photo attached:\n\n• ${missingPhotos.join('\n• ')}\n\nDo you want to submit for approval anyway, without these photos?`)
+      if (!ok) return
+    }
     await patch({ insp_status: 'submitted' })
     await supabase.from('container_loadings').update({ submitted_at: new Date().toISOString() }).eq('id', cl.id)
     alert('Submitted for approval.')
@@ -175,6 +179,32 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
     alert('Container report email sent.')
   }
+
+  const removeLogoBackground = (file: File): Promise<Blob> => new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = img.naturalWidth; cv.height = img.naturalHeight
+      const ctx = cv.getContext('2d'); if (!ctx) { reject(new Error('no canvas')); return }
+      ctx.drawImage(img, 0, 0)
+      const imgData = ctx.getImageData(0, 0, cv.width, cv.height); const px = imgData.data
+      const corners = [[0, 0], [cv.width - 1, 0], [0, cv.height - 1], [cv.width - 1, cv.height - 1]].map(([x, y]) => { const i = (y * cv.width + x) * 4; return [px[i], px[i + 1], px[i + 2]] })
+      const bg = [0, 1, 2].map(c => Math.round(corners.reduce((s, k) => s + k[c], 0) / corners.length)); const tol = 70
+      for (let i = 0; i < px.length; i += 4) { const dd = Math.sqrt((px[i] - bg[0]) ** 2 + (px[i + 1] - bg[1]) ** 2 + (px[i + 2] - bg[2]) ** 2); if (dd < tol) px[i + 3] = 0 }
+      ctx.putImageData(imgData, 0, 0); cv.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png')
+    }
+    img.onerror = () => reject(new Error('image load failed')); img.src = URL.createObjectURL(file)
+  })
+  const uploadLogo = async (file: File, cutBg = false) => {
+    let body: Blob = file; let ext = (file.name.split('.').pop() || 'png').toLowerCase(); let contentType = file.type || 'image/png'
+    if (cutBg) { try { body = await removeLogoBackground(file); ext = 'png'; contentType = 'image/png' } catch { alert('Could not remove the background; uploading the original instead.') } }
+    const path = `logos/cl-${cl.id}-${Date.now()}.${ext}`
+    const { error: upErr } = await supabase.storage.from('qc-photos').upload(path, body, { upsert: true, contentType })
+    if (upErr) { alert('Logo upload failed: ' + upErr.message); return }
+    await patch({ report_logo_path: path }); alert('Report logo updated.')
+  }
+  const clearLogo = async () => { await patch({ report_logo_path: '' }); alert('Report logo reset.') }
+  const openReport = () => window.open(`/container-report/${cl.id}`, '_blank')
+  const openPdf = () => openContainerReport(cl.id)
 
   return (
     <div className="page" style={{ paddingTop: 16 }}>
@@ -287,7 +317,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
                 <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>Pallet {n}</div>
 
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Pallet label photo {labelPhotos.length === 0 && <span style={{ color: 'var(--fail)' }}>· required</span>}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Pallet label photo {labelPhotos.length === 0 && <span style={{ color: 'var(--ink-soft)' }}>· no photo yet</span>}</div>
                   {editable && <MediaCapture label="Label" onUploaded={async (path, type) => { const ok = await insertPhoto('pallet_label', n, true, path, type); if (ok) loadPhotos(cl.id) }} />}
                   <PhotoStrip itemKey="pallet_label" pieceNo={n} />
                 </div>
@@ -344,12 +374,12 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
       <div className="card" style={{ marginTop: 14 }}>
         <h2>Container Loading Inspection Photos</h2>
-        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>A photo is required for each item below before you can submit.</p>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>Add a photo for each item below. Photos are recommended but not required — you'll be asked to confirm at submission if any are missing.</p>
         {CONTAINER_PHOTO_ITEMS.map(item => {
           const ph = photosFor(item.key, 0)
           return (
             <div key={item.key} style={{ padding: '11px 0', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{bi(item.label)} {ph.length === 0 && <span style={{ color: 'var(--fail)', fontSize: 12 }}>· photo required</span>}</div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{bi(item.label)} {ph.length === 0 && <span style={{ color: 'var(--ink-soft)', fontSize: 12 }}>· no photo yet</span>}</div>
               <div className="muted" style={{ fontSize: 12, margin: '2px 0 8px' }}>{bi(item.instruction)}</div>
               <CamBtn itemKey={item.key} pieceNo={0} label="📷 Add photo / video" />
               <PhotoStrip itemKey={item.key} pieceNo={0} />
@@ -379,10 +409,29 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
           </div>
         )}
 
-        {cl.insp_status === 'approved' && (
-          <div style={{ marginTop: 12 }}>
-            <p style={{ color: 'var(--pass)', fontWeight: 600 }}>✓ Approved</p>
-            <button className="btn ghost" style={{ width: '100%', marginTop: 8 }} onClick={emailReport}>📧 Email container report</button>
+        {cl.insp_status === 'approved' && <p style={{ color: 'var(--pass)', fontWeight: 600, marginTop: 12 }}>✓ Approved</p>}
+
+        {(profile.role === 'approver' || cl.insp_status === 'approved') && (
+          <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Report</div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={openReport}>🔗 View interactive report</button>
+              <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={openPdf}>📄 PDF report</button>
+              <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={emailReport}>📧 Email interactive report</button>
+            </div>
+            {profile.role === 'approver' && (
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}>
+                  🖼 {cl.report_logo_path ? 'Change report logo' : 'Set report logo'}
+                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value = '' }} />
+                </label>
+                <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }} title="Uploads the logo with its solid background made transparent">
+                  🪄 Logo · cut out background
+                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f, true); (e.target as HTMLInputElement).value = '' }} />
+                </label>
+                {cl.report_logo_path && <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13 }} onClick={clearLogo}>Reset logo</button>}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -345,3 +345,59 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
     try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:40px;color:#C0392B">Failed to generate report: ' + esc(msg) + '</p>' } catch { /* ignore */ }
   }
 }
+
+// Printable PDF for a container loading. Reuses the container-report edge function JSON
+// (photos already signed, contents + pallet checks + translations resolved).
+export async function openContainerReport(id: string, lang: string = 'en') {
+  const w = window.open('', '_blank')
+  if (!w) { alert('Please allow pop-ups to generate the PDF report. / 请允许弹出窗口以生成PDF报告。'); return }
+  w.document.write('<!doctype html><meta charset="utf-8"><title>Container Report</title><body style="font-family:Arial;padding:40px;color:#1F3A5F">Generating report… / 正在生成报告…</body>')
+  try {
+    const base = (import.meta.env.VITE_SUPABASE_URL as string).replace(/\/$/, '')
+    const resp = await fetch(`${base}/functions/v1/container-report?id=${id}&lang=${lang}`)
+    const d = await resp.json()
+    if (!d.ok) throw new Error(d.error || 'Report unavailable')
+    const c = d.container
+    const T = lang === 'zh'
+      ? { title: '集装箱装柜报告', details: '运输与集装箱信息', contents: '装载内容', packing: '托盘包装检验', pallet: '托盘', photos: '照片证据', pass: '合格', fail: '不合格', na: '不适用', po: '订单号', container: '集装箱号', seal: '封条号', bl: '提单号', type: '装柜方式', pallets: '托盘数', dl: '装柜日期', etd: '预计离港', eta: '预计到港', dep: '起运港', dest: '目的港', insp: '检验员', appr: '批准人' }
+      : lang === 'de'
+      ? { title: 'Containerverladebericht', details: 'Versand- & Containerdetails', contents: 'Geladener Inhalt', packing: 'Palettenverpackungsprüfung', pallet: 'Palette', photos: 'Fotonachweis', pass: 'i.O.', fail: 'n.i.O.', na: 'k.A.', po: 'Bestell-Nr.', container: 'Container-Nr.', seal: 'Siegel-Nr.', bl: 'BL-Nummer', type: 'Verladeart', pallets: 'Paletten', dl: 'Verladedatum', etd: 'Vorauss. Abfahrt', eta: 'Vorauss. Ankunft', dep: 'Abfahrtshafen', dest: 'Zielhafen', insp: 'Prüfer', appr: 'Genehmigt von' }
+      : { title: 'Container Loading Report', details: 'Shipping & Container Details', contents: 'Loaded Contents', packing: 'Pallet Packing Inspection', pallet: 'Pallet', photos: 'Photo Evidence', pass: 'Pass', fail: 'Fail', na: 'N/A', po: 'PO No.', container: 'Container No.', seal: 'Seal No.', bl: 'BL Number', type: 'Loading type', pallets: 'Pallets', dl: 'Date Loaded', etd: 'Est. Port Departure', eta: 'Est. Port Arrival', dep: 'Departure Port', dest: 'Destination Port', insp: 'Inspector', appr: 'Approved By' }
+    const dt = (s: string) => s ? new Date(s).toLocaleDateString() : '—'
+    const detailRows: [string, string][] = [
+      [T.po, c.po_no], [T.container, c.container_no], [T.seal, c.seal_no], [T.bl, c.bl_no],
+      [T.type, c.loading_type === 'pallet' ? `Pallet (${c.pallet_count})` : 'Non-pallet'],
+      [T.dl, dt(c.date_loaded)], [T.etd, dt(c.etd)], [T.eta, dt(c.eta)], [T.dep, c.dep_port], [T.dest, c.dest_port],
+      [T.insp, c.inspectorName], [T.appr, c.reviewerName],
+    ]
+    const detailsHtml = detailRows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v || '—')}</td></tr>`).join('')
+    const contentsHtml = (d.contents || []).length ? `<h3>${esc(T.contents)}</h3><ul>${(d.contents).map((x: string) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''
+    const palletsHtml = (d.pallets || []).length ? `<h3>${esc(T.packing)}</h3>${d.pallets.map((pl: any) => `<div class="pl"><b>${esc(T.pallet)} ${pl.n}</b>${(pl.checks || []).length ? `<table class="grid">${pl.checks.map((ck: any) => `<tr><td>${esc(ck.label)}</td><td class="v ${ck.value === 'F' ? 'f' : ck.value === 'P' ? 'p' : ''}">${ck.value === 'P' ? esc(T.pass) : ck.value === 'F' ? esc(T.fail) : esc(T.na)}</td></tr>`).join('')}</table>` : '<div class="muted">—</div>'}</div>`).join('')}` : ''
+    const photosHtml = (d.photoGroups || []).length ? `<h3>${esc(T.photos)}</h3>${d.photoGroups.map((g: any) => `<div class="grp"><div class="gl">${esc(g.label)}</div><div class="gal">${g.photos.map((p: any) => p.url ? `<figure><a href="${esc(p.url)}" target="_blank">${p.mediaType === 'video' ? `🎬 ${esc(T.photos)}` : `<img src="${esc(p.url)}">`}</a><figcaption><b class="${p.isPass ? 'p' : 'f'}">${p.isPass ? esc(T.pass) : esc(T.fail)}</b>${p.comment ? ' · ' + esc(p.comment) : ''}</figcaption></figure>` : '').join('')}</div></div>`).join('')}` : ''
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(T.title)} — ${esc(c.container_no)}</title>
+<style>:root{--navy:#1F3A5F;--ink-soft:#5A6878;--line:#D5DBE4;--pass:#1F8A4C;--fail:#C0392B}
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#18222E;margin:0;padding:0}
+.head{background:var(--navy);color:#fff;padding:18px 24px;display:flex;align-items:center;gap:16px}
+.head img{height:42px;max-width:200px;object-fit:contain}.head .t{font-size:20px;font-weight:800}
+.body{padding:20px 24px}h3{color:var(--navy);margin:18px 0 6px;font-size:15px}
+table.grid,table.det{width:100%;border-collapse:collapse;font-size:13px}
+table.det td{padding:7px 8px;border-bottom:1px solid #EAEFF4}table.det td.k{color:var(--ink-soft);font-weight:600;width:42%}
+table.grid td{padding:6px 8px;border-bottom:1px solid #EAEFF4}table.grid td.v{text-align:right;font-weight:700}td.v.p{color:var(--pass)}td.v.f{color:var(--fail)}
+.pl{border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
+ul{margin:4px 0;padding-left:20px}.muted{color:var(--ink-soft)}
+.gl{font-weight:700;color:var(--navy);margin:8px 0 4px}
+.gal{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.gal img{width:100%;height:90px;object-fit:cover;border-radius:6px;display:block}
+.gal figcaption{font-size:10px;color:var(--ink-soft);margin-top:3px}.gal b.p{color:var(--pass)}.gal b.f{color:var(--fail)}
+.foot{padding:12px 24px;color:#9AA7B5;font-size:10px;letter-spacing:2px;border-top:1px solid var(--line);margin-top:18px}
+@media print{.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}h3{break-after:avoid}.grp,.pl,tr{break-inside:avoid}@page{size:A4;margin:12mm}}</style></head>
+<body><div class="head">${d.logoUrl ? `<img src="${esc(d.logoUrl)}">` : '<div class="t">NITRA</div>'}<div><div class="t">📦 ${esc(T.title)}</div><div style="color:#9FB6D4;font-size:12px">${esc(c.container_no || '')}</div></div></div>
+<div class="body"><h3>${esc(T.details)}</h3><table class="det">${detailsHtml}</table>${contentsHtml}${palletsHtml}${photosHtml}</div>
+<div class="foot">CONFIDENTIAL — PROPERTY OF NITRA</div>
+<script>window.addEventListener('load',function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},600);});</script>
+</body></html>`
+    w.document.open(); w.document.write(html); w.document.close()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:40px;color:#C0392B">Failed to generate report: ' + esc(msg) + '</p>' } catch { /* ignore */ }
+  }
+}

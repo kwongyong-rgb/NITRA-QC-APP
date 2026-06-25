@@ -107,6 +107,7 @@ Deno.serve(async (req) => {
 </div>
 <div style="background:${signedOff ? '#E3F3EA' : '#FFF6E5'};border:1px solid ${signedOff ? '#1F8A4C' : '#C99A00'};padding:12px 24px;font-weight:700;font-size:16px;color:${signedOff ? '#1F8A4C' : '#9A7400'}">${esc(statusTxt)}${signedOff ? ' · APPROVED' : ''}</div>
 <div style="background:#fff;border:1px solid #D5DBE4;border-top:none;padding:22px 24px">
+  <p style="text-align:center;margin:0 0 18px"><a href="${(Deno.env.get('PUBLIC_APP_URL') || 'https://nitra-qc-app.vercel.app').replace(/\/$/, '')}/container-report/${cl.id}" style="background:#1F3A5F;color:#fff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:700;display:inline-block">Open Interactive Report (EN / DE / 中文)</a></p>
   <table style="width:100%;border-collapse:collapse;margin:0 0 18px">
     <tr><td style="padding:6px 0;color:#5A6878;width:38%">PO No.</td><td style="font-weight:600">${esc(cl.po_no || '—')}</td></tr>
     <tr><td style="padding:6px 0;color:#5A6878">Container No.</td><td style="font-weight:600">${esc(cl.container_no || '—')} ${linkList(photosFor('container_no_photo', 0))}</td></tr>
