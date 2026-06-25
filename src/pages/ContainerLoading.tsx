@@ -9,7 +9,7 @@ import type { Profile } from '../App'
 type PFNA = 'P' | 'F' | 'NA' | undefined
 interface Content { part_no: string; qty: number }
 interface PalletData { contents: Content[]; checks: Record<string, PFNA> }
-interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number; pallets?: Record<string, PalletData>; non_pallet_contents?: Content[] }
+interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number; pallets?: Record<string, PalletData>; non_pallet_contents?: Content[]; date_loaded?: string; etd?: string; eta?: string; bl_no?: string; dest_port?: string; dep_port?: string }
 interface CL {
   id: string; po_no: string; container_no: string; seal_no: string
   status: string; insp_status: string; inspector_id: string
@@ -215,11 +215,29 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         )}
       </div>
 
+      <div className="card" style={{ marginTop: 14 }}>
+        <h2>Shipping Details</h2>
+        <div className="grid2">
+          <label className="fld"><span>Date Loaded</span>
+            <input className="txt" type="date" disabled={!editable} value={cl.data.date_loaded || ''} onChange={e => setData({ ...cl.data, date_loaded: e.target.value })} /></label>
+          <label className="fld"><span>BL Number</span>
+            <input className="txt" disabled={!editable} value={cl.data.bl_no || ''} onChange={e => setData({ ...cl.data, bl_no: e.target.value })} /></label>
+          <label className="fld"><span>Estimated Port Departure Date</span>
+            <input className="txt" type="date" disabled={!editable} value={cl.data.etd || ''} onChange={e => setData({ ...cl.data, etd: e.target.value })} /></label>
+          <label className="fld"><span>Estimated Port Arrival Date</span>
+            <input className="txt" type="date" disabled={!editable} value={cl.data.eta || ''} onChange={e => setData({ ...cl.data, eta: e.target.value })} /></label>
+          <label className="fld"><span>Departure Port</span>
+            <input className="txt" disabled={!editable} value={cl.data.dep_port || ''} onChange={e => setData({ ...cl.data, dep_port: e.target.value })} /></label>
+          <label className="fld"><span>Destination Port</span>
+            <input className="txt" disabled={!editable} value={cl.data.dest_port || ''} onChange={e => setData({ ...cl.data, dest_port: e.target.value })} /></label>
+        </div>
+      </div>
+
       <datalist id="cl-skus">{skuList.map(s => <option key={s} value={s} />)}</datalist>
 
       {loadingType === 'non_pallet' && (
         <div className="card" style={{ marginTop: 14 }}>
-          <h2>Non-Pallet Loading</h2>
+          <h2>SKUs Loaded: Non-Pallet Loading</h2>
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>Add each part number loaded into the container and the quantity.</p>
           {(cl.data.non_pallet_contents || []).map((c, ci) => {
             const set = (contents: Content[]) => setData({ ...cl.data, non_pallet_contents: contents })
@@ -241,7 +259,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
       {loadingType === 'pallet' && (
         <div className="card" style={{ marginTop: 14 }}>
-          <h2>Pallet Packing</h2>
+          <h2>SKUs Loaded: Pallet Loading</h2>
           <label className="fld" style={{ maxWidth: 240 }}><span>Number of pallets (1–22)</span>
             <input className="txt" type="number" min={1} max={22} disabled={!editable} value={cl.data.pallet_count ?? ''}
               onChange={e => { const n = Math.max(0, Math.min(22, Math.floor(+e.target.value || 0))); setData({ ...cl.data, pallet_count: n }) }} /></label>
@@ -341,11 +359,8 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
-        <h2>Disposition</h2>
+        <h2>Submit &amp; Report</h2>
         {cl.insp_status === 'rejected' && cl.review_note && <div className="banner bad" style={{ marginBottom: 10 }}>↩ {cl.review_note}</div>}
-        <label className="fld"><span>Corrective action / notes</span>
-          <textarea className="txt" rows={3} disabled={!editable} value={cl.summary.corrective_action || ''}
-            onChange={e => patch({ summary: { ...cl.summary, corrective_action: e.target.value } })} /></label>
 
         {['draft', 'rejected'].includes(cl.insp_status) && editable &&
           <button className="btn" style={{ width: '100%', marginTop: 14 }} onClick={submit}>Submit for approval</button>}
