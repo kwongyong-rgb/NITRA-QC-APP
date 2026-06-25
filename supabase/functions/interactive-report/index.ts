@@ -252,6 +252,32 @@ Deno.serve(async (req) => {
       }
     })
 
+    const lang = (url.searchParams.get('lang') || 'en').toLowerCase()
+    let correctiveAction = insp.summary?.corrective_action || insp.summary?.remarks || ''
+    let translationNote: string | null = null
+
+    if (lang === 'de' || lang === 'zh') {
+      const strings = new Set<string>()
+      for (const o of outcomes) if (o.parameter) strings.add(o.parameter)
+      for (const d of defectRows) { if (d.parameter) strings.add(d.parameter); if (d.pieceLabel) strings.add(d.pieceLabel) }
+      for (const g of photoGroups) {
+        if (g.label) strings.add(g.label)
+        for (const p of g.photos) { if (p.comment) strings.add(p.comment); if (p.pieceLabel) strings.add(p.pieceLabel) }
+      }
+      if (correctiveAction) strings.add(correctiveAction)
+      const list = [...strings].filter((s) => s && s !== '—')
+      const { map: tx, error } = await translateBatch(list, lang, inspectionId, supa)
+      if (error) translationNote = error
+      const tr = (s: string) => (s && s !== '—' && tx[s]) ? tx[s] : s
+      for (const o of outcomes) o.parameter = tr(o.parameter)
+      for (const d of defectRows) { d.parameter = tr(d.parameter); d.pieceLabel = tr(d.pieceLabel) }
+      for (const g of photoGroups) {
+        g.label = tr(g.label)
+        for (const p of g.photos) { p.comment = tr(p.comment); p.pieceLabel = tr(p.pieceLabel) }
+      }
+      correctiveAction = tr(correctiveAction)
+    }
+
     let logoUrl: string | null = null
     if (insp.report_logo_path) {
       const { data: lu } = await supa.storage.from('qc-photos').createSignedUrl(insp.report_logo_path, 60 * 60 * 6)
@@ -260,6 +286,8 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
+      lang,
+      translationNote,
       logoUrl,
       insp: {
         part_no: insp.part_no,
@@ -272,7 +300,7 @@ Deno.serve(async (req) => {
         reviewed_at: insp.reviewed_at,
         disposition: insp.summary?.disposition || null,
         remarks: insp.summary?.remarks || '',
-        corrective_action: insp.summary?.corrective_action || insp.summary?.remarks || '',
+        corrective_action: correctiveAction,
       },
       sku: sku ? { model: sku.model, size: sku.size, pcd: sku.pcd, offset_txt: sku.offset_txt, cb_mm: sku.cb_mm, finish: sku.finish } : null,
       inspectorName: names[insp.inspector_id] || '—',
@@ -289,6 +317,67 @@ Deno.serve(async (req) => {
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } })
+}
+
+// Translate a batch of English strings into the target language with Claude, caching
+// the result per (inspection, language). Only re-calls Claude when the set of source
+// strings changes (hash mismatch), so a public report view never triggers a fresh
+// translation once it has been generated once.
+async function translateBatch(
+  list: string[], lang: string, inspectionId: string, supa: any,
+): Promise<{ map: Record<string, string>; error: string | null }> {
+  if (!list.length) return { map: {}, error: null }
+  const source_hash = hashStrings(list)
+  try {
+    const { data: cached } = await supa.from('report_translations')
+      .select('content_hash, payload').eq('inspection_id', inspectionId).eq('lang', lang).maybeSingle()
+    if (cached && cached.content_hash === source_hash && cached.payload && Object.keys(cached.payload).length) {
+      return { map: cached.payload as Record<string, string>, error: null }
+    }
+  } catch (_) { /* cache read best-effort */ }
+
+  const key = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!key) return { map: {}, error: 'no_key' }
+
+  const obj: Record<string, string> = {}
+  list.forEach((s, i) => { obj[String(i)] = s })
+  const langName = lang === 'de' ? 'German' : 'Simplified Chinese'
+  const system = `You are a professional translator for automotive alloy-wheel manufacturing and quality-control documents. Translate the VALUE of each entry in the given JSON object from English into ${langName}, using correct industry terminology. Do NOT translate or alter: part numbers, SKU codes, numeric measurements, units (mm, g, kg, cm), or piece references such as "#3". Preserve all numbers exactly. Return ONLY a valid JSON object with exactly the same keys and the translated values — no markdown, no code fences, no extra commentary.`
+
+  let parsed: Record<string, string> = {}
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 8000, system,
+        messages: [{ role: 'user', content: JSON.stringify(obj) }],
+      }),
+    })
+    if (!resp.ok) return { map: {}, error: 'api_' + resp.status }
+    const j = await resp.json()
+    let text = (j.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('').trim()
+    text = text.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim()
+    parsed = JSON.parse(text)
+  } catch (_) {
+    return { map: {}, error: 'translate_failed' }
+  }
+
+  const map: Record<string, string> = {}
+  list.forEach((s, i) => { const t = parsed[String(i)]; if (typeof t === 'string' && t.trim()) map[s] = t })
+  try {
+    await supa.from('report_translations').upsert({
+      inspection_id: inspectionId, lang, content_hash: source_hash, payload: map, updated_at: new Date().toISOString(),
+    })
+  } catch (_) { /* cache write best-effort */ }
+  return { map, error: null }
+}
+
+function hashStrings(arr: string[]): string {
+  const s = arr.join('\u0001')
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(16)
 }
 function corsHeaders() {
   return {
