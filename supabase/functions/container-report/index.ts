@@ -48,13 +48,24 @@ Deno.serve(async (req) => {
     const { data: photoRows } = await supa.from('photos').select('*').eq('container_loading_id', id)
     const signed = async (p: string) => (await supa.storage.from('qc-photos').createSignedUrl(p, 60 * 60 * 6)).data?.signedUrl || null
 
-    // contents
-    const contents: string[] = []
+    // loaded contents → aggregate qty by part no, enrich with SKU details
+    const qtyByPart: Record<string, number> = {}
+    const addQty = (pn: string, q: any) => { if (!pn) return; qtyByPart[pn] = (qtyByPart[pn] || 0) + (Number(q) || 0) }
     if (type === 'pallet') {
-      for (const [n, pd] of Object.entries(d.pallets || {})) for (const c of ((pd as any).contents || [])) if (c.part_no) contents.push(`Pallet ${n}: ${c.part_no} × ${c.qty}`)
+      for (const pd of Object.values(d.pallets || {})) for (const c of ((pd as any).contents || [])) addQty(c.part_no, c.qty)
     } else {
-      for (const c of (d.non_pallet_contents || [])) if (c.part_no) contents.push(`${c.part_no} × ${c.qty}`)
+      for (const c of (d.non_pallet_contents || [])) addQty(c.part_no, c.qty)
     }
+    const partNos = Object.keys(qtyByPart)
+    const { data: skuRows } = partNos.length
+      ? await supa.from('skus').select('part_no,model,size,pcd,cb_mm,offset_txt,finish').in('part_no', partNos)
+      : { data: [] as any[] }
+    const skuMap: Record<string, any> = {}
+    for (const s of (skuRows || [])) skuMap[s.part_no] = s
+    const contents = partNos.sort().map((pn) => {
+      const s = skuMap[pn] || {}
+      return { part_no: pn, model: s.model || '', size: s.size || '', pcd: s.pcd || '', cb: s.cb_mm ?? '', et: s.offset_txt || '', color: s.finish || '', qty: qtyByPart[pn] }
+    })
 
     // per-pallet packing checks
     const pallets: any[] = []

@@ -389,7 +389,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
-        <h2>Submit &amp; Report</h2>
+        <h2>Submit &amp; Sign-off</h2>
         {cl.insp_status === 'rejected' && cl.review_note && <div className="banner bad" style={{ marginBottom: 10 }}>↩ {cl.review_note}</div>}
 
         {['draft', 'rejected'].includes(cl.insp_status) && editable &&
@@ -410,31 +410,31 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         )}
 
         {cl.insp_status === 'approved' && <p style={{ color: 'var(--pass)', fontWeight: 600, marginTop: 12 }}>✓ Approved</p>}
-
-        {(profile.role === 'approver' || cl.insp_status === 'approved') && (
-          <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Report</div>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={openReport}>🔗 View interactive report</button>
-              <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={openPdf}>📄 PDF report</button>
-              <button className="btn ghost" style={{ minHeight: 38, padding: '4px 14px', fontSize: 13 }} onClick={emailReport}>📧 Email interactive report</button>
-            </div>
-            {profile.role === 'approver' && (
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}>
-                  🖼 {cl.report_logo_path ? 'Change report logo' : 'Set report logo'}
-                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value = '' }} />
-                </label>
-                <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }} title="Uploads the logo with its solid background made transparent">
-                  🪄 Logo · cut out background
-                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f, true); (e.target as HTMLInputElement).value = '' }} />
-                </label>
-                {cl.report_logo_path && <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13 }} onClick={clearLogo}>Reset logo</button>}
-              </div>
-            )}
-          </div>
-        )}
       </div>
+
+      {(profile.role === 'approver' || cl.insp_status === 'approved') && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="row" style={{ alignItems: 'center' }}>
+            <h2 style={{ flex: 1, marginBottom: 0 }}>Container Loading Report</h2>
+            <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openReport}>View Interactive Report</button>
+            <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openPdf}>PDF Report</button>
+            <button className="btn" style={{ minHeight: 40, padding: '6px 14px' }} onClick={emailReport}>Email Interactive Report</button>
+          </div>
+          {profile.role === 'approver' && (
+            <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}>
+                🖼 {cl.report_logo_path ? 'Change report logo' : 'Set report logo'}
+                <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value = '' }} />
+              </label>
+              <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }} title="Uploads the logo with its solid background made transparent, so it blends onto the navy report header">
+                🪄 Logo · cut out background
+                <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f, true); (e.target as HTMLInputElement).value = '' }} />
+              </label>
+              {cl.report_logo_path && <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13 }} onClick={clearLogo}>Reset logo</button>}
+            </div>
+          )}
+        </div>
+      )}
 
       {capture && (
         <div className="modal-overlay" onClick={() => setCapture(null)}>
