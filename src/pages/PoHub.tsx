@@ -36,6 +36,18 @@ export default function PoHub({ profile }: { profile: Profile }) {
     if (data) nav(`/container/${data.id}`)
   }
 
+  const emailPoReport = async () => {
+    const input = prompt('Email the consolidated PO report to (comma-separated):', 'kyong@nitrawheels.com')
+    if (input === null) return
+    const emails = input.split(',').map(s => s.trim()).filter(Boolean)
+    if (!emails.length) { alert('No recipients entered.'); return }
+    setBusy(true)
+    const { error } = await supabase.functions.invoke('send-po-report', { body: { po, emails } })
+    setBusy(false)
+    if (error) { alert('Email failed: ' + error.message); return }
+    alert('Consolidated PO report link sent.')
+  }
+
   const delInsp = async (r: Insp) => {
     if (!confirm('Delete this wheel inspection? This cannot be undone.')) return
     const { error } = await supabase.from('inspections').delete().eq('id', r.id)
@@ -115,7 +127,14 @@ export default function PoHub({ profile }: { profile: Profile }) {
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
-        <button className="btn" style={{ width: '100%' }} disabled title="Coming in the next step">Consolidated PO report (coming soon)</button>
+        <h2 style={{ margin: '0 0 8px' }}>Consolidated PO report</h2>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>One shareable report with an overview, jump-to navigation, and every wheel SKU + container in this PO.</p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <Link to={`/po-report/${encodeURIComponent(po)}`} target="_blank">
+            <button className="btn" style={{ minHeight: 40, padding: '6px 16px' }}>Open consolidated report</button>
+          </Link>
+          <button className="btn ghost" style={{ minHeight: 40, padding: '6px 16px' }} disabled={busy} onClick={emailPoReport}>✉ Email consolidated report</button>
+        </div>
       </div>
     </div>
   )

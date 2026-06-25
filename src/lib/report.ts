@@ -35,6 +35,16 @@ const DISPOSITION: Record<string, { en: string; zh: string; cls: 'pass' | 'hold'
   pending_customer:    { en: 'PENDING CUSTOMER APPROVAL', zh: '待客户批准',   cls: 'hold' },
 }
 
+// Render the corrective-action HTML for the printable report: legacy plain text is
+// escaped + newline-converted; scripts/handlers are stripped.
+const toRichHtml = (s?: string) => {
+  if (!s) return ''
+  const html = /<(\/?)(b|i|u|p|ul|ol|li|br|strong|em|span|div)\b/i.test(s)
+    ? s : esc(s).replace(/\n/g, '<br>')
+  return html.replace(/<\s*(script|style)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi, '').replace(/ on\w+=("[^"]*"|'[^']*')/gi, '')
+}
+const sevToCls = (c?: string): 'pass' | 'hold' | 'fail' => c === 'reject' ? 'fail' : c === 'pass' ? 'pass' : 'hold'
+
 const CSS = `
 :root{--navy:#1F3A5F;--steel:#9FB6D4;--line:#D5DBE4;--ink:#18222E;--ink-soft:#5A6878;
 --pass:#1F8A4C;--pass-bg:#E3F3EA;--fail:#C0392B;--fail-bg:#FBE9E7;--amber:#B7791F;--amber-bg:#FBF3E2;}
@@ -262,7 +272,10 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
       : ''
 
     // ── Meta ──
-    const disp = DISPOSITION[insp.summary?.disposition] || { en: 'PENDING DISPOSITION', zh: '待定处置', cls: 'hold' as const }
+    const dispCodePdf = insp.summary?.disposition || ''
+    const disp = dispCodePdf === 'custom'
+      ? { en: insp.summary?.disposition_custom || 'PENDING DISPOSITION', zh: '', cls: sevToCls(insp.summary?.disposition_cls) }
+      : (DISPOSITION[dispCodePdf] || { en: 'PENDING DISPOSITION', zh: '待定处置', cls: 'hold' as const })
     const dt = (s?: string) => s ? new Date(s).toLocaleString() : '—'
     const wt = sku?.wheel_weight_kg != null ? `${Number(sku.wheel_weight_kg).toFixed(2)} kg <span style="color:var(--ink-soft);font-weight:400">(± ${Number(sku.wheel_weight_tol_kg ?? 0.4)} kg)</span>` : '—'
 
@@ -274,7 +287,7 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
   <div class="doc">QC Inspection Report<small>质量检验报告</small></div>
 </div>
 <div class="disp ${disp.cls}">
-  <span>${esc(disp.en)} <small>· ${esc(disp.zh)}</small></span>
+  <span>${esc(disp.en)}${disp.zh ? ` <small>· ${esc(disp.zh)}</small>` : ''}</span>
   <small>${lang === 'en' ? 'Report generated' : '报告生成'} ${esc(new Date().toLocaleString())}</small>
 </div>
 <div class="body">
@@ -309,6 +322,10 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
   ${defects.length
     ? `<table class="grid"><tr><th>${lang === 'en' ? 'Inspected Parameter' : '检验项目'}</th><th>${lang === 'en' ? 'Piece #' : '件号'}</th><th>${lang === 'en' ? 'Photo' : '照片'}</th></tr>${defectRows}</table>`
     : `<div style="color:var(--ink-soft)">${lang === 'en' ? 'No defects logged.' : '暂无缺陷记录。'}</div>`}
+
+  ${insp.summary?.corrective_action
+    ? `<div class="remarks"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px">${lang === 'en' ? 'CORRECTIVE ACTION / DISPOSITION · 纠正措施 / 处置' : '纠正措施 / 处置 · CORRECTIVE ACTION / DISPOSITION'}</div>${toRichHtml(insp.summary.corrective_action)}</div>`
+    : ''}
 
   ${insp.summary?.remarks
     ? `<div class="remarks"><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px">${lang === 'en' ? 'REMARKS · 备注' : '备注 · REMARKS'}</div>${esc(insp.summary.remarks)}</div>`

@@ -25,6 +25,7 @@ interface ReportData {
     app_sample: number; fun_sample: number
     submitted_at: string | null; reviewed_at: string | null
     disposition: string | null; remarks: string; corrective_action: string
+    disposition_custom?: string | null; disposition_cls?: string | null
   }
   sku: { model: string; size: string; pcd: string; offset_txt: string; cb_mm: number | null; finish: string } | null
   inspectorName: string
@@ -188,6 +189,28 @@ function buildFindings(rows: OutcomeRow[], L: Record<string, string>): string[] 
   return items
 }
 
+// Allow only simple formatting tags from the corrective-action editor; strip everything
+// else (and all attributes) before injecting into the public report. Legacy plain-text
+// values (no tags) are escaped and newline-converted.
+function sanitizeHtml(input: string): string {
+  if (!input) return ''
+  const html = /<(\/?)(b|i|u|p|ul|ol|li|br|strong|em|span|div)\b/i.test(input)
+    ? input
+    : input.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string)).replace(/\n/g, '<br>')
+  const allowed = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'P', 'UL', 'OL', 'LI', 'BR', 'SPAN', 'DIV'])
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+  const root = doc.body.firstChild as HTMLElement
+  const walk = (node: Element) => {
+    Array.from(node.children).forEach(child => {
+      if (!allowed.has(child.tagName)) { child.replaceWith(doc.createTextNode(child.textContent || '')); return }
+      Array.from(child.attributes).forEach(a => child.removeAttribute(a.name))
+      walk(child)
+    })
+  }
+  walk(root)
+  return root.innerHTML
+}
+
 export default function ReportPage() {
   const { id } = useParams<{ id: string }>()
   const [data, setData] = useState<ReportData | null>(null)
@@ -213,15 +236,19 @@ export default function ReportPage() {
   if (!data) return <div style={page}><p style={{ color: 'var(--ink-soft)' }}>{L.loadingReport}</p></div>
 
   const dispCode = data.insp.disposition || ''
-  const dispCls = DISPOSITION_CLS[dispCode] || 'pending'
-  const dispText = (dispCode && L['disp_' + dispCode]) ? L['disp_' + dispCode] : L.pendingDisposition
-  const bannerColor = dispCls === 'pass' ? 'var(--pass)' : dispCls === 'hold' ? 'var(--amber)' : '#5A6878'
-  const bannerBg = dispCls === 'pass' ? '#E8F5EC' : dispCls === 'hold' ? '#FCF2DD' : '#EEF1F5'
+  const isCustomDisp = dispCode === 'custom'
+  const dispCls = isCustomDisp ? (data.insp.disposition_cls || 'pending') : (DISPOSITION_CLS[dispCode] || 'pending')
+  const dispText = isCustomDisp
+    ? (data.insp.disposition_custom || L.pendingDisposition)
+    : ((dispCode && L['disp_' + dispCode]) ? L['disp_' + dispCode] : L.pendingDisposition)
+  const bannerColor = dispCls === 'pass' ? 'var(--pass)' : dispCls === 'hold' ? 'var(--amber)' : dispCls === 'reject' ? 'var(--fail)' : '#5A6878'
+  const bannerBg = dispCls === 'pass' ? '#E8F5EC' : dispCls === 'hold' ? '#FCF2DD' : dispCls === 'reject' ? '#FBE9E7' : '#EEF1F5'
   const sectTitle = (t: string) => (lang === 'en' ? t : (SECT[lang][t] || t))
   const outLabel = (o: string) => L[OUT_KEY[o]] || o
 
   return (
     <div style={page}>
+      <style>{`.rich-body p{margin:0 0 8px}.rich-body ul,.rich-body ol{margin:0 0 8px;padding-left:22px}.rich-body li{margin:2px 0}.rich-body u{text-decoration:underline}`}</style>
       <header style={{ background: 'var(--navy)', color: '#fff' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '18px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -288,7 +315,8 @@ export default function ReportPage() {
           {data.insp.corrective_action && (
             <div style={{ marginTop: 14 }}>
               <h2 style={h2}>{L.corrective}</h2>
-              <p style={{ marginTop: 0, whiteSpace: 'pre-wrap' }}>{data.insp.corrective_action}</p>
+              <div style={{ marginTop: 0 }} className="rich-body"
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.insp.corrective_action) }} />
             </div>
           )}
         </section>

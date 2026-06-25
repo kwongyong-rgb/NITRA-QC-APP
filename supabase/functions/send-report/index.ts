@@ -47,9 +47,18 @@ Deno.serve(async (req) => {
       conditional_rework: 'CONDITIONAL LOADING — REWORK REJECTED PIECES & LOAD',
       pending_customer: 'PENDING CUSTOMER APPROVAL',
     }
-    const disposition = dispositionLabel[insp.summary?.disposition] || 'PENDING DISPOSITION'
-    const isPass = insp.summary?.disposition === 'approved_loading'
-    const isPending = !dispositionLabel[insp.summary?.disposition]
+    const dispCode = insp.summary?.disposition || ''
+    const isCustom = dispCode === 'custom'
+    const disposition = isCustom
+      ? (insp.summary?.disposition_custom || 'PENDING DISPOSITION')
+      : (dispositionLabel[dispCode] || 'PENDING DISPOSITION')
+    const dispCls = isCustom ? (insp.summary?.disposition_cls || 'pending')
+      : dispCode === 'approved_loading' ? 'pass'
+      : dispositionLabel[dispCode] ? 'hold'
+      : 'pending'
+    const dispBg = dispCls === 'pass' ? '#E3F3EA' : dispCls === 'reject' ? '#FBE9E7' : dispCls === 'pending' ? '#EEF1F5' : '#FBF3E2'
+    const dispBorder = dispCls === 'pass' ? '#1F8A4C' : dispCls === 'reject' ? '#C0392B' : dispCls === 'pending' ? '#9FB0C0' : '#B7791F'
+    const dispColor = dispCls === 'pass' ? '#1F8A4C' : dispCls === 'reject' ? '#C0392B' : dispCls === 'pending' ? '#5A6878' : '#8A5A0E'
     const appUrl = (Deno.env.get('PUBLIC_APP_URL') || 'https://nitra-qc-app.vercel.app').replace(/\/$/, '')
     const reportUrl = `${appUrl}/report/${encodeURIComponent(inspection_id)}`
 
@@ -90,7 +99,7 @@ Deno.serve(async (req) => {
   ${logoHtml}
   <div style="color:#9FB6D4;font-size:14px;margin-top:4px">QC Interactive Report</div>
 </div>
-<div style="background:${isPass?'#E3F3EA':isPending?'#EEF1F5':'#FBF3E2'};border:1px solid ${isPass?'#1F8A4C':isPending?'#9FB0C0':'#B7791F'};padding:12px 24px;font-weight:700;font-size:16px;color:${isPass?'#1F8A4C':isPending?'#5A6878':'#8A5A0E'}">${esc(disposition)}</div>
+<div style="background:${dispBg};border:1px solid ${dispBorder};padding:12px 24px;font-weight:700;font-size:16px;color:${dispColor}">${esc(disposition)}</div>
 <div style="background:#fff;border:1px solid #D5DBE4;border-top:none;padding:22px 24px">
   <p style="margin-top:0">A NITRA QC inspection report is ready for review. Click the button below to open the live interactive report with clickable photo/video evidence.</p>
   <table style="width:100%;border-collapse:collapse;margin:14px 0 20px">

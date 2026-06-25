@@ -1,48 +1,43 @@
-# NITRA QC App — v55 (report language toggle: English / German / 中文)
+# NITRA QC App — v55 (rich-text corrective action + custom dispositions)
 
-This build is cumulative — it contains everything from v53 (photo-keep-on-Fail→Pass)
-and v54 (header redesign, criteria reformat, logo cut-out) PLUS the new language toggle.
-Deploying v55 is all you need.
+## 1. Formatting in the Corrective Action / Disposition box
+The plain box is now a small rich-text editor: Bold, Italic, Underline, bullet list,
+and numbered list. Saved as HTML. Old plain-text notes still load fine. The formatting
+shows on the interactive report (sanitised), the emailed report, and the printable PDF
+(the PDF previously didn't show the corrective action at all — now it does). The DE/中文
+translation keeps the formatting tags and only translates the text inside them.
 
-## What's new in v55
-A language switch (EN · DE · 中文) on the interactive report header. It translates the
-WHOLE report, including the dynamic text you asked about:
-- Fixed wording (labels, headings, table, criteria, disposition, photo banners,
-  outcome labels, footer) → built-in trilingual dictionary, instant.
-- Dynamic text (inspection findings, corrective action / disposition paragraph,
-  parameter names, photo comments, piece labels) → translated by Claude inside the
-  interactive-report edge function, then CACHED per report + language so a public
-  viewer never triggers a fresh translation once it's been generated once.
+## 2. Custom final disposition (+ save for future use)
+The disposition dropdown now has: Standard options, a "Saved custom" group, and
+"➕ Add custom disposition…". Adding one opens a panel:
+  - a text field for the wording,
+  - a banner-colour picker (Approved=green / Caution=amber / Reject=red / Neutral=grey),
+  - a "Save this disposition for future use" checkbox → "Save to library".
+Saved dispositions appear in the dropdown on every future report. The interactive
+report, the email, and the PDF all render the custom wording with the chosen colour
+(new red "Reject" banner state added).
 
-The English view is unchanged and makes no API calls. Translation only happens when
-DE or 中文 is selected.
+## Files changed
+- src/components/RichText.tsx (new editor)
+- src/pages/Inspection.tsx (editor + custom-disposition UI/state)
+- src/pages/ReportPage.tsx (HTML render + sanitiser + custom disposition + red state)
+- src/lib/report.ts (PDF: corrective action + custom disposition)
+- supabase/functions/interactive-report/index.ts (translate custom text; preserve HTML)
+- supabase/functions/send-report/index.ts (custom disposition banner)
+- supabase/14_migration.sql (custom_dispositions library table)
 
-## ⚠️ This build needs 4 deploy steps (one is new)
-
-### A. Run migration 13 (SQL Editor)
-Paste supabase/13_migration.sql → Run. Creates the translation cache table.
-
-### B. Add your Anthropic API key as a Supabase secret  ← NEW, required for DE/中文
-This is a key from console.anthropic.com (Settings → API Keys), with credit on it.
-It is separate from your Claude chat subscription. In PowerShell, in the repo folder:
-
-    supabase secrets set ANTHROPIC_API_KEY=sk-ant-xxxxxxxx --project-ref nzzktgstpifevaqyapyw
-
-(If the key is missing the toggle still works, but DE/中文 show an amber notice and keep
-the original text for the dynamic fields.)
-
-### C. Redeploy the interactive-report edge function (it now does the translating)
-    supabase functions deploy interactive-report --project-ref nzzktgstpifevaqyapyw --no-verify-jwt
-
-### D. Push to Vercel (ReportPage toggle + all the v53/v54 UI changes)
-Replace files, commit, push, wait green, hard-refresh the report.
-
-## Notes
-- Cost: one Claude call per (report, language), cached. Re-amending a report changes
-  its content hash and re-translates once on next view.
-- Photo/section grouping headers, disposition wording, and outcome labels are
-  translated from the built-in dictionary (deterministic), so they're always correct.
-- Part numbers, sizes, measurements and piece refs (#3) are kept untranslated.
+## DEPLOY — all three pipelines this time
+1. SQL Editor: run 14_migration.sql  ("Success. No rows returned").
+2. Vercel: replace files, commit, push, wait green. (app + report page)
+3. Edge functions (PowerShell in repo):
+   supabase functions deploy interactive-report --project-ref nzzktgstpifevaqyapyw --no-verify-jwt
+   supabase functions deploy send-report --project-ref nzzktgstpifevaqyapyw
+4. Reinstall the PWA / hard-refresh the report link.
 
 ## Verified
-- tsc -b: 0 errors. interactive-report esbuild: 0 errors.
+- tsc -b: 0 errors. interactive-report + send-report: esbuild clean.
+
+## Note
+The custom-disposition colour picker only sets the banner colour; it doesn't change
+any pass/fail counting. Background HTML is allow-listed (b/i/u/p/ul/ol/li/span) on the
+public report, so pasted styles/scripts are stripped.

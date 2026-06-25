@@ -254,6 +254,7 @@ Deno.serve(async (req) => {
 
     const lang = (url.searchParams.get('lang') || 'en').toLowerCase()
     let correctiveAction = insp.summary?.corrective_action || insp.summary?.remarks || ''
+    let dispositionCustom = insp.summary?.disposition_custom || ''
     let translationNote: string | null = null
 
     if (lang === 'de' || lang === 'zh') {
@@ -265,6 +266,7 @@ Deno.serve(async (req) => {
         for (const p of g.photos) { if (p.comment) strings.add(p.comment); if (p.pieceLabel) strings.add(p.pieceLabel) }
       }
       if (correctiveAction) strings.add(correctiveAction)
+      if (dispositionCustom) strings.add(dispositionCustom)
       const list = [...strings].filter((s) => s && s !== '—')
       const { map: tx, error } = await translateBatch(list, lang, inspectionId, supa)
       if (error) translationNote = error
@@ -276,6 +278,7 @@ Deno.serve(async (req) => {
         for (const p of g.photos) { p.comment = tr(p.comment); p.pieceLabel = tr(p.pieceLabel) }
       }
       correctiveAction = tr(correctiveAction)
+      dispositionCustom = tr(dispositionCustom)
     }
 
     let logoUrl: string | null = null
@@ -299,6 +302,8 @@ Deno.serve(async (req) => {
         submitted_at: insp.submitted_at,
         reviewed_at: insp.reviewed_at,
         disposition: insp.summary?.disposition || null,
+        disposition_custom: dispositionCustom || null,
+        disposition_cls: insp.summary?.disposition_cls || null,
         remarks: insp.summary?.remarks || '',
         corrective_action: correctiveAction,
       },
@@ -342,7 +347,7 @@ async function translateBatch(
   const obj: Record<string, string> = {}
   list.forEach((s, i) => { obj[String(i)] = s })
   const langName = lang === 'de' ? 'German' : 'Simplified Chinese'
-  const system = `You are a professional translator for automotive alloy-wheel manufacturing and quality-control documents. Translate the VALUE of each entry in the given JSON object from English into ${langName}, using correct industry terminology. Do NOT translate or alter: part numbers, SKU codes, numeric measurements, units (mm, g, kg, cm), or piece references such as "#3". Preserve all numbers exactly. Return ONLY a valid JSON object with exactly the same keys and the translated values — no markdown, no code fences, no extra commentary.`
+  const system = `You are a professional translator for automotive alloy-wheel manufacturing and quality-control documents. Translate the VALUE of each entry in the given JSON object from English into ${langName}, using correct industry terminology. Do NOT translate or alter: part numbers, SKU codes, numeric measurements, units (mm, g, kg, cm), or piece references such as "#3". Preserve all numbers exactly. Some values may contain simple HTML tags (<b>, <i>, <u>, <p>, <ul>, <ol>, <li>, <br>, <span>); keep every tag exactly where it is and translate ONLY the human-readable text between the tags. Return ONLY a valid JSON object with exactly the same keys and the translated values — no markdown, no code fences, no extra commentary.`
 
   let parsed: Record<string, string> = {}
   try {

@@ -8,6 +8,7 @@ import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb, MediaCapture } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
 import HundredPctCheck from '../components/HundredPctCheck'
+import RichText from '../components/RichText'
 import { REF_MAP } from '../lib/refmap'
 import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
@@ -23,7 +24,7 @@ interface Insp {
     pallet_count?: number
   }
   pallet_data: Record<string, PFNA>
-  summary: { remarks?: string; disposition?: string; corrective_action?: string }
+  summary: { remarks?: string; disposition?: string; corrective_action?: string; disposition_custom?: string; disposition_cls?: string }
   review_note: string
   amended_at?: string | null; amended_by?: string | null
   amend_log?: { at: string; by: string; label: string }[]
@@ -58,6 +59,23 @@ type ModalState =
 
 const TABS = ['form','measure','photos','summary','100pct'] as const
 
+// Treat stored corrective_action as HTML. Legacy values were plain text with newlines,
+// so convert those for display the first time they're loaded into the editor.
+const looksLikeHtml = (s: string) => /<(\/?)(b|i|u|p|ul|ol|li|br|strong|em|span|div)\b/i.test(s)
+const escHtml = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+const toHtml = (s: string) => (!s ? '' : looksLikeHtml(s) ? s : escHtml(s).replace(/\n/g, '<br>'))
+
+// Custom-disposition severity buckets → banner colour on the report.
+const DISP_SEVERITIES: { cls: string; label: string; color: string }[] = [
+  { cls: 'pass',    label: 'Approved (green)', color: '#1F8A4C' },
+  { cls: 'hold',    label: 'Caution (amber)',  color: '#B7791F' },
+  { cls: 'reject',  label: 'Reject (red)',     color: '#C0392B' },
+  { cls: 'pending', label: 'Neutral (grey)',   color: '#5A6878' },
+]
+
+interface CustomDisp { id: string; label: string; cls: string }
+
+
 const CORRECTIVE_TEMPLATES: { label: string; text: (f: string) => string }[] = [
   { label: 'Rework failed param + load', text: f => `Factory to rework wheels with failed parameter(s): ${f} (100% inspection conducted), and load after rework.` },
   { label: '100% inspect + rework + reinspect', text: f => `Factory to conduct 100% inspection and rework all wheels affected by: ${f}, then re-submit for QC re-inspection before loading.` },
@@ -91,6 +109,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [histOpen, setHistOpen] = useState(false)
   const [skuOptions, setSkuOptions] = useState<string[]>([])
   const [logoUrl, setLogoUrl] = useState('')
+  const [customDisps, setCustomDisps] = useState<CustomDisp[]>([])
+  const [dispSaveChecked, setDispSaveChecked] = useState(false)
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
 
   const load = useCallback(async () => {
@@ -113,6 +133,39 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  const loadCustomDisps = useCallback(async () => {
+    const { data } = await supabase.from('custom_dispositions').select('id,label,cls').order('label')
+    setCustomDisps((data as CustomDisp[]) || [])
+  }, [])
+  useEffect(() => { loadCustomDisps() }, [loadCustomDisps])
+
+  const saveSummary = async (patch: Partial<Insp['summary']>) => {
+    if (!insp) return
+    const s = { ...insp.summary, ...patch }
+    setInsp({ ...insp, summary: s })
+    await supabase.from('inspections').update({ summary: s, updated_at: new Date().toISOString() }).eq('id', insp.id)
+  }
+  const onDispChange = async (val: string) => {
+    if (val === '__add__') { await saveSummary({ disposition: 'custom', disposition_custom: '', disposition_cls: 'hold' }); return }
+    if (val.startsWith('saved:')) {
+      const c = customDisps.find(d => d.id === val.slice(6))
+      if (c) await saveSummary({ disposition: 'custom', disposition_custom: c.label, disposition_cls: c.cls })
+      return
+    }
+    await saveSummary({ disposition: val, disposition_custom: '', disposition_cls: '' })
+  }
+  const saveCustomDisp = async () => {
+    if (!insp) return
+    const label = (insp.summary.disposition_custom || '').trim()
+    const cls = insp.summary.disposition_cls || 'hold'
+    if (!label) { alert('Type the disposition text first.'); return }
+    const { error } = await supabase.from('custom_dispositions').insert({ label, cls, created_by: profile.id })
+    if (error && !/duplicate|unique/i.test(error.message)) { alert('Could not save: ' + error.message); return }
+    setDispSaveChecked(false)
+    await loadCustomDisps()
+    setSubmitMsg('Custom disposition saved for future use.')
+  }
   useEffect(() => {
     photos.forEach(async p => {
       if (!photoUrls[p.storage_path]) {
@@ -459,7 +512,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const submit = async () => {
     if (!insp) return
     const missing: string[] = []
-    if (!insp.summary.disposition) missing.push(t('disposition'))
+    if (!insp.summary.disposition || (insp.summary.disposition === 'custom' && !(insp.summary.disposition_custom||'').trim())) missing.push(t('disposition'))
     const pending = verdicts.filter(v => v.status==='extra_needed')
     if (pending.length) missing.push(`${t('extraNeeded')}: ${pending.map(v=>v.label).join(', ')}`)
     if (missing.length) { alert('Cannot submit yet:\n\n• '+missing.join('\n• ')); return }
@@ -962,8 +1015,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
           {triggeredItems.length>0 && <div className="banner bad">⛔ {t('fullInsp')}: {triggeredItems.map(v=>v.label).join(', ')}</div>}
 
           <label className="fld" style={{ marginTop:14 }}><span>{t('correctiveAction')}</span>
-            <textarea className="txt" rows={4} disabled={!editable} value={insp.summary.corrective_action||''}
-              onChange={async e => { const s={...insp.summary,corrective_action:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }} />
+            <RichText disabled={!editable} placeholder="Type the corrective action / disposition notes…"
+              value={toHtml(insp.summary.corrective_action||'')}
+              onChange={html => saveSummary({ corrective_action: html })} />
           </label>
           {editable && (
             <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:8 }}>
@@ -971,10 +1025,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
               {CORRECTIVE_TEMPLATES.map((tpl,i) => (
                 <button key={i} className="btn ghost" style={{ minHeight:34, padding:'4px 10px', fontSize:12 }}
                   onClick={async () => {
-                    const line=tpl.text(failedParamStr)
-                    const cur=insp.summary.corrective_action||''
-                    const s={...insp.summary, corrective_action: cur ? `${cur}\n${line}` : line}
-                    setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id)
+                    const line = `<p>${escHtml(tpl.text(failedParamStr))}</p>`
+                    const cur = toHtml(insp.summary.corrective_action||'')
+                    await saveSummary({ corrective_action: cur ? `${cur}${line}` : line })
                   }}>{tpl.label}</button>
               ))}
             </div>
@@ -1044,16 +1097,62 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
           <div style={{ height:14 }} />
           <label className="fld"><span>{t('disposition')} *</span>
-            <select className="sel" disabled={!editable} value={insp.summary.disposition||''}
-              onChange={async e => { const s={...insp.summary,disposition:e.target.value}; setInsp({...insp,summary:s}); await supabase.from('inspections').update({ summary:s, updated_at:new Date().toISOString() }).eq('id',insp.id) }}>
+            <select className="sel" disabled={!editable}
+              value={(() => {
+                const d = insp.summary.disposition || ''
+                if (d === 'custom') {
+                  const m = customDisps.find(c => c.label === insp.summary.disposition_custom && c.cls === insp.summary.disposition_cls)
+                  return m ? `saved:${m.id}` : '__add__'
+                }
+                return d
+              })()}
+              onChange={e => onDispChange(e.target.value)}>
               <option value="">— {t('status')} —</option>
-              <option value="approved_loading">{t('dispApprovedLoading')}</option>
-              <option value="hold_rework">{t('dispHoldRework')}</option>
-              <option value="conditional_loading">{t('dispConditional')}</option>
-              <option value="conditional_rework">{t('dispConditionalRework')}</option>
-              <option value="pending_customer">{t('dispPendingCustomer')}</option>
+              <optgroup label="Standard">
+                <option value="approved_loading">{t('dispApprovedLoading')}</option>
+                <option value="hold_rework">{t('dispHoldRework')}</option>
+                <option value="conditional_loading">{t('dispConditional')}</option>
+                <option value="conditional_rework">{t('dispConditionalRework')}</option>
+                <option value="pending_customer">{t('dispPendingCustomer')}</option>
+              </optgroup>
+              {customDisps.length>0 && (
+                <optgroup label="Saved custom">
+                  {customDisps.map(c => <option key={c.id} value={`saved:${c.id}`}>{c.label}</option>)}
+                </optgroup>
+              )}
+              <option value="__add__">➕ Add custom disposition…</option>
             </select>
           </label>
+
+          {editable && insp.summary.disposition === 'custom' && (
+            <div style={{ border:'1px solid var(--line)', borderRadius:10, padding:12, marginTop:8, background:'#F8FAFC' }}>
+              <div style={{ fontSize:13, fontWeight:700, color:'var(--navy)', marginBottom:8 }}>Custom disposition</div>
+              <input className="sel" style={{ width:'100%' }} placeholder="e.g. CONDITIONAL — SHIP WITH CUSTOMER WAIVER"
+                value={insp.summary.disposition_custom||''}
+                onChange={e => saveSummary({ disposition_custom: e.target.value })} />
+              <div style={{ fontSize:12, color:'var(--ink-soft)', margin:'10px 0 6px' }}>Banner colour on the report:</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                {DISP_SEVERITIES.map(s => {
+                  const on = (insp.summary.disposition_cls||'hold') === s.cls
+                  return (
+                    <button key={s.cls} onClick={() => saveSummary({ disposition_cls: s.cls })}
+                      style={{ padding:'5px 10px', borderRadius:7, fontSize:12, fontWeight:700, cursor:'pointer',
+                        border:`1.5px solid ${s.color}`, background: on ? s.color : '#fff', color: on ? '#fff' : s.color }}>
+                      {s.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <label style={{ display:'flex', alignItems:'center', gap:8, marginTop:12, fontSize:13, cursor:'pointer' }}>
+                <input type="checkbox" checked={dispSaveChecked} onChange={e => setDispSaveChecked(e.target.checked)} />
+                Save this disposition for future use
+              </label>
+              {dispSaveChecked && (
+                <button className="btn" style={{ marginTop:8, minHeight:36, padding:'6px 14px', fontSize:13 }}
+                  onClick={saveCustomDisp}>Save to library</button>
+              )}
+            </div>
+          )}
           {inspectorEditable && <button className="btn" style={{ width:'100%', marginTop:16 }} onClick={submit}>{t('submit')}</button>}
         </div>
       )}
