@@ -43,6 +43,7 @@ const STR = {
   approvals:      { en: 'Approvals',                  zh: '审批' },
   settings:       { en: 'Settings',                   zh: '设置' },
   skus:           { en: 'SKUs',                       zh: 'SKU管理' },
+  team:           { en: 'Team',                       zh: '团队' },
   refLibrary:     { en: 'Reference Photos',           zh: '参考照片' },
   nominal:        { en: 'Nominal',                    zh: '标称' },
   tolerance:      { en: 'Tolerance',                  zh: '公差' },

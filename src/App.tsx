@@ -9,6 +9,8 @@ import Inspection from './pages/Inspection'
 import Approvals from './pages/Approvals'
 import Settings from './pages/Settings'
 import Skus from './pages/Skus'
+import TeamPage from './pages/TeamPage'
+import SetPassword from './pages/SetPassword'
 import RefLibrary from './pages/RefLibrary'
 import ReportPage from './pages/ReportPage'
 import PoReportPage from './pages/PoReportPage'
@@ -19,7 +21,16 @@ import ErrorBoundary from './components/ErrorBoundary'
 
 export interface Profile { id: string; full_name: string; role: 'inspector' | 'approver' }
 
+// Captured synchronously at module load: an invite / password-reset link arrives
+// with its one-time token in the URL hash (e.g. #...&type=invite). The Supabase
+// client strips the hash asynchronously, so we read the type now, before that.
+const initialLinkType = (() => {
+  try { return new URLSearchParams((window.location.hash || '').replace(/^#/, '')).get('type') }
+  catch { return null }
+})()
+
 export default function App() {
+  const [recoverMode, setRecoverMode] = useState(initialLinkType === 'invite' || initialLinkType === 'recovery')
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [menuOpen, setMenuOpen] = useState(false)
   const { lang, setLang, t } = useI18n()
@@ -57,6 +68,16 @@ export default function App() {
   }
 
   if (profile === undefined) return <div className="page">…</div>
+
+  // An invited user (or password reset) must set a password before using the app.
+  if (recoverMode) {
+    return <SetPassword onDone={() => {
+      try { history.replaceState(null, '', window.location.pathname) } catch { /* ignore */ }
+      setRecoverMode(false)
+      nav('/')
+    }} />
+  }
+
   if (profile === null) return <Login />
 
   return (
@@ -70,6 +91,7 @@ export default function App() {
             <>
               <Link to="/approvals"><button>{t('approvals')}</button></Link>
               <Link to="/skus"><button>{t('skus')}</button></Link>
+              <Link to="/team"><button>{t('team')}</button></Link>
               <Link to="/settings"><button>{t('settings')}</button></Link>
             </>
           )}
@@ -88,6 +110,7 @@ export default function App() {
           <Route path="/approvals" element={profile.role === 'approver' ? <Approvals /> : <Navigate to="/" />} />
           <Route path="/settings" element={profile.role === 'approver' ? <Settings /> : <Navigate to="/" />} />
           <Route path="/skus" element={profile.role === 'approver' ? <Skus /> : <Navigate to="/" />} />
+          <Route path="/team" element={profile.role === 'approver' ? <TeamPage /> : <Navigate to="/" />} />
           <Route path="/reference" element={<RefLibrary profile={profile} />} />
         </Routes>
       </ErrorBoundary>
