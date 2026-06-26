@@ -1004,6 +1004,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
           <div className="row" style={{ alignItems:'center' }}>
             <h2 style={{ flex:1, marginBottom:0 }}>Inspection Report</h2>
             <button className="btn ghost" style={{ minHeight:40, padding:'6px 14px' }} onClick={() => openInspectionReport(insp.id, lang)}>{t('pdfReport')}</button>
+            <button className="btn ghost" style={{ minHeight:40, padding:'6px 14px' }} onClick={() => window.open(`/report/${insp.id}`, '_blank')}>View Interactive Report</button>
             <button className="btn" style={{ minHeight:40, padding:'6px 14px' }} onClick={emailInteractiveReport}>Email Interactive Report</button>
           </div>
           <div style={{ height:14 }} />

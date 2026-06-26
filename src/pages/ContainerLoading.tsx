@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { PALLET_PACKING_ITEMS, CONTAINER_PHOTO_ITEMS } from '../lib/standard'
-import { MediaCapture, MediaThumb } from '../components/PhotoModal'
+import { MediaCapture, MediaThumb, ReassignModal, CopyModal } from '../components/PhotoModal'
 import { openContainerReport } from '../lib/report'
 import type { Profile } from '../App'
 
@@ -32,6 +32,14 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [activePallet, setActivePallet] = useState(1)
   const [reviewNote, setReviewNote] = useState('')
   const [err, setErr] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [photoModal, setPhotoModal] = useState<{ type: 'reassign' | 'copy'; photo: Photo } | null>(null)
+
+  useEffect(() => {
+    const path = cl?.report_logo_path
+    if (!path) { setLogoUrl(''); return }
+    supabase.storage.from('qc-photos').createSignedUrl(path, 3600).then(({ data }) => setLogoUrl(data?.signedUrl || ''))
+  }, [cl?.report_logo_path])
 
   const loadPhotos = useCallback(async (clId: string) => {
     const { data } = await supabase.from('photos').select('*').eq('container_loading_id', clId).order('created_at')
@@ -71,6 +79,14 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const palletCount = cl.data.pallet_count ?? 0
   const pallets = Array.from({ length: palletCount }, (_, i) => i + 1)
   const curPallet = Math.min(Math.max(activePallet, 1), palletCount || 1)
+
+  const allItemsForReassign = [
+    { key: 'container_no_photo', label: 'Container number' },
+    { key: 'seal_no_photo', label: 'Seal number' },
+    ...CONTAINER_PHOTO_ITEMS.map(i => ({ key: i.key, label: bi(i.label) })),
+    { key: 'pallet_label', label: 'Pallet label' },
+    ...PALLET_PACKING_ITEMS.map(i => ({ key: i.key, label: bi(i.label) })),
+  ]
 
   const patch = async (fields: Partial<CL>) => {
     const next = { ...cl, ...fields }; setCl(next)
@@ -133,7 +149,13 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         {ph.map(p => (
           <div key={p.id} style={{ position: 'relative' }}>
             <MediaThumb type={p.media_type} url={urls[p.storage_path] || ''} onClick={() => urls[p.storage_path] && window.open(urls[p.storage_path], '_blank')} />
-            {editable && <button onClick={() => deletePhoto(p)} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(204,17,34,.9)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '1px 5px', cursor: 'pointer' }}>🗑</button>}
+            {editable && (
+              <div style={{ position: 'absolute', top: 2, right: 2, display: 'flex', gap: 3 }}>
+                <button onClick={() => setPhotoModal({ type: 'reassign', photo: p })} title="Reassign to another parameter" style={{ background: 'rgba(31,58,95,.92)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, padding: '1px 5px', cursor: 'pointer' }}>↻</button>
+                <button onClick={() => setPhotoModal({ type: 'copy', photo: p })} title="Copy to other parameters" style={{ background: 'rgba(31,58,95,.92)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, padding: '1px 5px', cursor: 'pointer' }}>⧉</button>
+                <button onClick={() => deletePhoto(p)} title="Delete" style={{ background: 'rgba(204,17,34,.9)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '1px 5px', cursor: 'pointer' }}>🗑</button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -209,6 +231,40 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   return (
     <div className="page" style={{ paddingTop: 16 }}>
       <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav('/')}>← Home</button>
+
+      {(profile.role === 'approver' || cl.insp_status === 'approved') && (
+        <div className="card">
+          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <h2 style={{ flex: 1, marginBottom: 0 }}>Container Loading Inspection</h2>
+            <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openPdf}>PDF Report</button>
+            <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openReport}>View Interactive Report</button>
+            <button className="btn" style={{ minHeight: 40, padding: '6px 14px' }} onClick={emailReport}>Email Interactive Report</button>
+          </div>
+          {profile.role === 'approver' && (
+            <>
+              <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}>
+                  🖼 {cl.report_logo_path ? 'Change report logo' : 'Set report logo'}
+                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value = '' }} />
+                </label>
+                <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }} title="Uploads the logo with its solid background made transparent, so it blends onto the navy report header">
+                  🪄 Logo · cut out background
+                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f, true); (e.target as HTMLInputElement).value = '' }} />
+                </label>
+                {cl.report_logo_path && <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13 }} onClick={clearLogo}>Reset logo</button>}
+              </div>
+              {logoUrl && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 4 }}>Report logo (shown on the report instead of NITRA):</div>
+                  <div style={{ display: 'inline-block', background: 'var(--navy)', borderRadius: 8, padding: '8px 14px' }}>
+                    <img src={logoUrl} alt="report logo" style={{ height: 40, maxWidth: 220, objectFit: 'contain', display: 'block' }} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <h2>Container Loading</h2>
@@ -412,28 +468,13 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         {cl.insp_status === 'approved' && <p style={{ color: 'var(--pass)', fontWeight: 600, marginTop: 12 }}>✓ Approved</p>}
       </div>
 
-      {(profile.role === 'approver' || cl.insp_status === 'approved') && (
-        <div className="card" style={{ marginTop: 14 }}>
-          <div className="row" style={{ alignItems: 'center' }}>
-            <h2 style={{ flex: 1, marginBottom: 0 }}>Container Loading Report</h2>
-            <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openReport}>View Interactive Report</button>
-            <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openPdf}>PDF Report</button>
-            <button className="btn" style={{ minHeight: 40, padding: '6px 14px' }} onClick={emailReport}>Email Interactive Report</button>
-          </div>
-          {profile.role === 'approver' && (
-            <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}>
-                🖼 {cl.report_logo_path ? 'Change report logo' : 'Set report logo'}
-                <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); (e.target as HTMLInputElement).value = '' }} />
-              </label>
-              <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }} title="Uploads the logo with its solid background made transparent, so it blends onto the navy report header">
-                🪄 Logo · cut out background
-                <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f, true); (e.target as HTMLInputElement).value = '' }} />
-              </label>
-              {cl.report_logo_path && <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13 }} onClick={clearLogo}>Reset logo</button>}
-            </div>
-          )}
-        </div>
+      {photoModal?.type === 'reassign' && (
+        <ReassignModal photo={{ ...photoModal.photo, defect_id: null }} allItems={allItemsForReassign} maxPiece={palletCount || 0}
+          onDone={() => { setPhotoModal(null); loadPhotos(cl.id) }} onClose={() => setPhotoModal(null)} />
+      )}
+      {photoModal?.type === 'copy' && (
+        <CopyModal containerLoadingId={cl.id} photo={photoModal.photo} allItems={allItemsForReassign}
+          onDone={() => { setPhotoModal(null); loadPhotos(cl.id) }} onClose={() => setPhotoModal(null)} />
       )}
 
       {capture && (

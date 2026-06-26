@@ -278,12 +278,13 @@ export function ReassignModal({ photo, allItems, maxPiece, onDone, onClose }: Re
 
 // ── COPY MODAL ──────────────────────────────────────────────
 interface CopyProps {
-  inspectionId: string
+  inspectionId?: string
+  containerLoadingId?: string
   photo: { storage_path: string; media_type?: string; is_pass_photo: boolean; piece_no: number; item_key: string; comment?: string }
   allItems: { key: string; label: string }[]
   onDone: () => void; onClose: () => void
 }
-export function CopyModal({ inspectionId, photo, allItems, onDone, onClose }: CopyProps) {
+export function CopyModal({ inspectionId, containerLoadingId, photo, allItems, onDone, onClose }: CopyProps) {
   const { t } = useI18n()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -293,7 +294,8 @@ export function CopyModal({ inspectionId, photo, allItems, onDone, onClose }: Co
     if (selected.size === 0) { onClose(); return }
     setSaving(true)
     const rows = [...selected].map(k => ({
-      inspection_id: inspectionId, storage_path: photo.storage_path, media_type: photo.media_type || 'photo',
+      ...(containerLoadingId ? { container_loading_id: containerLoadingId } : { inspection_id: inspectionId }),
+      storage_path: photo.storage_path, media_type: photo.media_type || 'photo',
       is_pass_photo: photo.is_pass_photo, item_key: k, piece_no: photo.piece_no, comment: photo.comment || '',
       reassigned_from: { item_key: photo.item_key, piece_no: photo.piece_no, copied: true },
     }))

@@ -11,9 +11,9 @@ const DICT: Record<Lang, Record<string, string>> = {
     loadingType: 'Loading Type', pallets: 'Pallets', dateLoaded: 'Date Loaded', etd: 'Est. Port Departure',
     eta: 'Est. Port Arrival', depPort: 'Departure Port', destPort: 'Destination Port', inspector: 'Inspector',
     approver: 'Approved By', contents: 'Loaded Contents', packing: 'Pallet Packing Inspection', pallet: 'Pallet',
-    photos: 'Photo / Video Evidence', pass: 'Pass', fail: 'Fail', na: 'N/A',
+    photos: 'Photo / Video Appendix', pass: 'Pass', fail: 'Fail', na: 'N/A',
     partNumber: 'Part Number', model: 'Model', size: 'Size', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Color', qty: 'Qty Loaded',
-    statusApproved: 'APPROVED', statusSubmitted: 'PENDING APPROVAL', statusDraft: 'DRAFT', statusRejected: 'RETURNED', statusTag: 'CONTAINER STATUS',
+    statusLoaded: 'LOADED', statusInProgress: 'IN PROGRESS', statusHold: 'HOLD', statusUnset: 'IN PROGRESS', statusTag: 'CONTAINER STATUS',
     palletType: 'Palletised', nonPalletType: 'Non-palletised', noPhotos: 'No photos uploaded.', loading: 'Loading report…',
     txUnavailable: 'Automatic translation is unavailable — some fields are shown in the original language.',
   },
@@ -23,9 +23,9 @@ const DICT: Record<Lang, Record<string, string>> = {
     loadingType: 'Verladeart', pallets: 'Paletten', dateLoaded: 'Verladedatum', etd: 'Vorauss. Hafenabfahrt',
     eta: 'Vorauss. Hafenankunft', depPort: 'Abfahrtshafen', destPort: 'Zielhafen', inspector: 'Prüfer',
     approver: 'Genehmigt von', contents: 'Geladener Inhalt', packing: 'Palettenverpackungsprüfung', pallet: 'Palette',
-    photos: 'Foto- / Videonachweis', pass: 'i.O.', fail: 'n.i.O.', na: 'k.A.',
+    photos: 'Foto- / Video-Anhang', pass: 'i.O.', fail: 'n.i.O.', na: 'k.A.',
     partNumber: 'Teilenummer', model: 'Modell', size: 'Größe', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Farbe', qty: 'Geladene Menge',
-    statusApproved: 'GENEHMIGT', statusSubmitted: 'AUSSTEHENDE GENEHMIGUNG', statusDraft: 'ENTWURF', statusRejected: 'ZURÜCKGEGEBEN', statusTag: 'CONTAINERSTATUS',
+    statusLoaded: 'GELADEN', statusInProgress: 'IN BEARBEITUNG', statusHold: 'ZURÜCKGEHALTEN', statusTag: 'CONTAINERSTATUS',
     palletType: 'Palettiert', nonPalletType: 'Nicht palettiert', noPhotos: 'Keine Fotos hochgeladen.', loading: 'Bericht wird geladen…',
     txUnavailable: 'Automatische Übersetzung nicht verfügbar — einige Felder erscheinen in der Originalsprache.',
   },
@@ -35,19 +35,18 @@ const DICT: Record<Lang, Record<string, string>> = {
     loadingType: '装柜方式', pallets: '托盘数', dateLoaded: '装柜日期', etd: '预计离港',
     eta: '预计到港', depPort: '起运港', destPort: '目的港', inspector: '检验员',
     approver: '批准人', contents: '装载内容', packing: '托盘包装检验', pallet: '托盘',
-    photos: '照片 / 视频证据', pass: '合格', fail: '不合格', na: '不适用',
+    photos: '照片 / 视频附录', pass: '合格', fail: '不合格', na: '不适用',
     partNumber: '产品编号', model: '型号', size: '尺寸', pcd: 'PCD', cb: 'CB', et: 'ET', color: '颜色', qty: '装载数量',
-    statusApproved: '已批准', statusSubmitted: '待批准', statusDraft: '草稿', statusRejected: '已退回', statusTag: '集装箱状态',
+    statusLoaded: '已装柜', statusInProgress: '进行中', statusHold: '暂扣', statusTag: '集装箱状态',
     palletType: '托盘装', nonPalletType: '非托盘装', noPhotos: '暂无照片。', loading: '正在加载报告…',
     txUnavailable: '自动翻译不可用 — 部分内容以原文显示。',
   },
 }
 
 function statusInfo(s: string, L: Record<string, string>) {
-  if (s === 'approved') return { text: L.statusApproved, color: 'var(--pass)', bg: '#E8F5EC' }
-  if (s === 'submitted') return { text: L.statusSubmitted, color: 'var(--amber)', bg: '#FCF2DD' }
-  if (s === 'rejected') return { text: L.statusRejected, color: 'var(--fail)', bg: '#FBE9E7' }
-  return { text: L.statusDraft, color: '#5A6878', bg: '#EEF1F5' }
+  if (s === 'loaded') return { text: L.statusLoaded, color: 'var(--pass)', bg: '#E8F5EC' }
+  if (s === 'hold') return { text: L.statusHold, color: 'var(--fail)', bg: '#FBE9E7' }
+  return { text: L.statusInProgress, color: 'var(--amber)', bg: '#FCF2DD' }
 }
 const fmtDate = (s: string) => s ? new Date(s).toLocaleDateString() : '—'
 
@@ -71,7 +70,7 @@ export default function ContainerReportPage() {
   if (!data) return <div style={page}><p style={{ color: 'var(--ink-soft)', padding: 20 }}>{L.loading}</p></div>
 
   const c = data.container
-  const st = statusInfo(c.insp_status, L)
+  const st = statusInfo(c.status, L)
 
   return (
     <div style={page}>
@@ -128,13 +127,16 @@ export default function ContainerReportPage() {
               <table style={gridTable}>
                 <thead><tr>{[L.partNumber, L.model, L.size, L.pcd, L.cb, L.et, L.color, L.qty].map(t => <Th key={t}>{t}</Th>)}</tr></thead>
                 <tbody>
-                  {data.contents.map((r: any, i: number) => (
-                    <tr key={i}>
-                      <Td>{r.part_no}</Td><Td2>{r.model || '—'}</Td2><Td2>{r.size || '—'}</Td2><Td2>{r.pcd || '—'}</Td2>
-                      <Td2>{r.cb !== '' && r.cb != null ? r.cb : '—'}</Td2><Td2>{r.et || '—'}</Td2><Td2>{r.color || '—'}</Td2>
-                      <Td2 b>{r.qty}</Td2>
-                    </tr>
-                  ))}
+                  {data.contents.map((raw: any, i: number) => {
+                    const r = typeof raw === 'string' ? { part_no: raw, model: '', size: '', pcd: '', cb: '', et: '', color: '', qty: '' } : raw
+                    return (
+                      <tr key={i}>
+                        <Td>{r.part_no}</Td><Td2>{r.model || '—'}</Td2><Td2>{r.size || '—'}</Td2><Td2>{r.pcd || '—'}</Td2>
+                        <Td2>{r.cb !== '' && r.cb != null ? r.cb : '—'}</Td2><Td2>{r.et || '—'}</Td2><Td2>{r.color || '—'}</Td2>
+                        <Td2 b>{r.qty}</Td2>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -173,7 +175,7 @@ export default function ContainerReportPage() {
                     <a href={p.url || '#'} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
                       {p.url ? (p.mediaType === 'video' ? <div style={{ ...imgS, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#EEF1F5' }}><span style={{ fontSize: 32, color: 'var(--navy)' }}>▶</span></div> : <img src={p.url} style={imgS} />) : <div style={{ ...imgS, background: '#EEF1F5' }} />}
                     </a>
-                    <figcaption style={cap}><b style={{ color: p.isPass ? 'var(--pass)' : 'var(--fail)' }}>{p.isPass ? L.pass : L.fail}</b>{p.pieceNo ? ` · #${p.pieceNo}` : ''}{p.comment ? ` · ${p.comment}` : ''}</figcaption>
+                    {p.comment ? <figcaption style={cap}>{p.comment}</figcaption> : null}
                   </figure>
                 ))}
               </div>
