@@ -402,3 +402,55 @@ ul{margin:4px 0;padding-left:20px}.muted{color:var(--ink-soft)}
     try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:40px;color:#C0392B">Failed to generate report: ' + esc(msg) + '</p>' } catch { /* ignore */ }
   }
 }
+
+// Printable PDF for the consolidated PO report (containers + wheel inspections overview).
+export async function openPoReport(po: string, lang: string = 'en') {
+  const w = window.open('', '_blank')
+  if (!w) { alert('Please allow pop-ups to generate the PDF report. / 请允许弹出窗口以生成PDF报告。'); return }
+  w.document.write('<!doctype html><meta charset="utf-8"><title>PO Report</title><body style="font-family:Arial;padding:40px;color:#1F3A5F">Generating report… / 正在生成报告…</body>')
+  try {
+    const base = (import.meta.env.VITE_SUPABASE_URL as string).replace(/\/$/, '')
+    const resp = await fetch(`${base}/functions/v1/po-report?po=${encodeURIComponent(po)}&lang=${lang}`)
+    const d = await resp.json()
+    if (!d.ok) throw new Error(d.error || 'Report unavailable')
+    const T = lang === 'zh'
+      ? { title: '订单综合报告', containersH: '集装箱装柜', wheelInsp: '轮毂检验', container: '集装箱号', bl: '提单号', etd: '预计离港', eta: '预计到港', dest: '目的港', partNo: '产品编号', size: '尺寸', pcd: 'PCD', cb: 'CB', et: 'ET', color: '颜色', disp: '处置', pending: '待定处置' }
+      : lang === 'de'
+      ? { title: 'Konsolidierter Bestellbericht', containersH: 'Containerverladungen', wheelInsp: 'Radprüfungen', container: 'Container-Nr.', bl: 'BL-Nummer', etd: 'Vorauss. Abfahrt', eta: 'Vorauss. Ankunft', dest: 'Zielhafen', partNo: 'Teilenummer', size: 'Größe', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Farbe', disp: 'Entscheidung', pending: 'AUSSTEHENDE ENTSCHEIDUNG' }
+      : { title: 'Consolidated PO Report', containersH: 'Container Loadings', wheelInsp: 'Wheel Inspections', container: 'Container No.', bl: 'BL Number', etd: 'Est. Port Departure', eta: 'Est. Port Arrival', dest: 'Destination Port', partNo: 'Part Number', size: 'Size', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Color', disp: 'Disposition', pending: 'PENDING DISPOSITION' }
+    const DISP: Record<string, Record<string, string>> = {
+      approved_loading: { en: 'APPROVED FOR LOADING', de: 'FÜR VERLADUNG FREIGEGEBEN', zh: '批准装柜' },
+      hold_rework: { en: 'HOLD FOR REWORK & REINSPECTION', de: 'ZURÜCKHALTEN FÜR NACHARBEIT', zh: '暂扣返工并重检' },
+      conditional_loading: { en: 'CONDITIONAL LOADING — FAILED PIECES EXCLUDED', de: 'BEDINGTE VERLADUNG — TEILE AUSGESCHLOSSEN', zh: '有条件装柜 — 已剔除不合格件' },
+      conditional_rework: { en: 'CONDITIONAL LOADING — REWORK REJECTED PIECES & LOAD', de: 'BEDINGTE VERLADUNG — NACHARBEITEN & VERLADEN', zh: '有条件装柜 — 返工后装柜' },
+      pending_customer: { en: 'PENDING CUSTOMER APPROVAL', de: 'AUSSTEHENDE KUNDENFREIGABE', zh: '待客户批准' },
+    }
+    const dispText = (insp: any) => {
+      const c = insp?.disposition || ''
+      if (c === 'custom') return insp?.disposition_custom || T.pending
+      if (c && DISP[c]) return DISP[c][lang] || DISP[c].en
+      return T.pending
+    }
+    const dt = (s: string) => s ? new Date(s).toLocaleDateString() : '—'
+    const contRows = (d.containers || []).map((c: any) => `<tr><td><b>${esc(c.container_no || '—')}</b></td><td>${esc(c.bl_no || '—')}</td><td>${esc(dt(c.etd))}</td><td>${esc(dt(c.eta))}</td><td>${esc(c.dest_port || '—')}</td></tr>`).join('')
+    const skuRows = (d.skus || []).map((s: any) => `<tr><td><b>${esc(s.insp?.part_no || '—')}</b></td><td>${esc(s.sku?.size || '—')}</td><td>${esc(s.sku?.pcd || '—')}</td><td>${esc(s.sku?.cb_mm ?? '—')}</td><td>${esc(s.sku?.offset_txt || '—')}</td><td>${esc(s.sku?.finish || '—')}</td><td>${esc(dispText(s.insp))}</td></tr>`).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(T.title)} — ${esc(po)}</title>
+<style>:root{--navy:#1F3A5F;--ink-soft:#5A6878;--line:#D5DBE4}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#18222E;margin:0}
+.head{background:var(--navy);color:#fff;padding:18px 24px}.head .t{font-size:20px;font-weight:800}.head .s{color:#9FB6D4;font-size:12px;margin-top:3px}
+.body{padding:20px 24px}h3{color:var(--navy);margin:18px 0 6px;font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}th{background:var(--navy);color:#fff;text-align:left;padding:8px;font-size:11px;white-space:nowrap}td{padding:7px 8px;border-bottom:1px solid #EAEFF4}
+.foot{padding:12px 24px;color:#9AA7B5;font-size:10px;letter-spacing:2px;border-top:1px solid var(--line);margin-top:18px}
+@media print{.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}h3{break-after:avoid}tr{break-inside:avoid}@page{size:A4 landscape;margin:12mm}}</style></head>
+<body><div class="head">${d.logoUrl ? `<img src="${esc(d.logoUrl)}" style="height:40px;max-width:200px;object-fit:contain">` : ''}<div class="t">${esc(T.title)} · ${esc(po)}</div><div class="s">${esc(T.containersH)}: ${(d.containers || []).length} · ${esc(T.wheelInsp)}: ${(d.skus || []).length}</div></div>
+<div class="body">
+<h3>${esc(T.containersH)}</h3><table><tr><th>${esc(T.container)}</th><th>${esc(T.bl)}</th><th>${esc(T.etd)}</th><th>${esc(T.eta)}</th><th>${esc(T.dest)}</th></tr>${contRows || `<tr><td colspan="5">—</td></tr>`}</table>
+<h3>${esc(T.wheelInsp)}</h3><table><tr><th>${esc(T.partNo)}</th><th>${esc(T.size)}</th><th>${esc(T.pcd)}</th><th>${esc(T.cb)}</th><th>${esc(T.et)}</th><th>${esc(T.color)}</th><th>${esc(T.disp)}</th></tr>${skuRows || `<tr><td colspan="7">—</td></tr>`}</table>
+</div><div class="foot">CONFIDENTIAL — PROPERTY OF NITRA</div>
+<script>window.addEventListener('load',function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},600);});</script>
+</body></html>`
+    w.document.open(); w.document.write(html); w.document.close()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    try { w.document.body.innerHTML = '<p style="font-family:Arial;padding:40px;color:#C0392B">Failed to generate report: ' + esc(msg) + '</p>' } catch { /* ignore */ }
+  }
+}

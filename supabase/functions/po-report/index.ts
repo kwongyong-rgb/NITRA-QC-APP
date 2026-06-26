@@ -83,6 +83,7 @@ Deno.serve(async (req) => {
         id: c.id, container_no: c.container_no || '', seal_no: c.seal_no || '',
         status: c.status || '', insp_status: c.insp_status || '',
         loading_type: type, pallet_count: d.pallet_count ?? 0,
+        bl_no: d.bl_no || '', etd: d.etd || '', eta: d.eta || '', dest_port: d.dest_port || '', dep_port: d.dep_port || '', date_loaded: d.date_loaded || '',
         contents, checkPass, checkFail, failedChecks,
         disposition: c.summary?.disposition || null,
         disposition_custom: c.summary?.disposition_custom || null,

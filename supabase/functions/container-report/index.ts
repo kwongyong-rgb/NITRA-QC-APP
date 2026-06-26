@@ -57,13 +57,14 @@ Deno.serve(async (req) => {
       for (const c of (d.non_pallet_contents || [])) addQty(c.part_no, c.qty)
     }
     const partNos = Object.keys(qtyByPart)
+    const norm = (x: string) => (x || '').trim().toUpperCase()
     const { data: skuRows } = partNos.length
-      ? await supa.from('skus').select('part_no,model,size,pcd,cb_mm,offset_txt,finish').in('part_no', partNos)
+      ? await supa.from('skus').select('part_no,model,size,pcd,cb_mm,offset_txt,finish')
       : { data: [] as any[] }
     const skuMap: Record<string, any> = {}
-    for (const s of (skuRows || [])) skuMap[s.part_no] = s
+    for (const s of (skuRows || [])) skuMap[norm(s.part_no)] = s
     const contents = partNos.sort().map((pn) => {
-      const s = skuMap[pn] || {}
+      const s = skuMap[norm(pn)] || {}
       return { part_no: pn, model: s.model || '', size: s.size || '', pcd: s.pcd || '', cb: s.cb_mm ?? '', et: s.offset_txt || '', color: s.finish || '', qty: qtyByPart[pn] }
     })
 
