@@ -108,22 +108,16 @@ Deno.serve(async (req) => {
 <div style="background:${signedOff ? '#E3F3EA' : '#FFF6E5'};border:1px solid ${signedOff ? '#1F8A4C' : '#C99A00'};padding:12px 24px;font-weight:700;font-size:16px;color:${signedOff ? '#1F8A4C' : '#9A7400'}">${esc(statusTxt)}${signedOff ? ' · APPROVED' : ''}</div>
 <div style="background:#fff;border:1px solid #D5DBE4;border-top:none;padding:22px 24px">
   <p style="text-align:center;margin:0 0 18px"><a href="${(Deno.env.get('PUBLIC_APP_URL') || 'https://nitra-qc-app.vercel.app').replace(/\/$/, '')}/container-report/${cl.id}" style="background:#1F3A5F;color:#fff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:700;display:inline-block">Open Interactive Report (EN / DE / 中文)</a></p>
-  <table style="width:100%;border-collapse:collapse;margin:0 0 18px">
-    <tr><td style="padding:6px 0;color:#5A6878;width:38%">PO No.</td><td style="font-weight:600">${esc(cl.po_no || '—')}</td></tr>
-    <tr><td style="padding:6px 0;color:#5A6878">Container No.</td><td style="font-weight:600">${esc(cl.container_no || '—')} ${linkList(photosFor('container_no_photo', 0))}</td></tr>
-    <tr><td style="padding:6px 0;color:#5A6878">Seal No.</td><td>${esc(cl.seal_no || '—')} ${linkList(photosFor('seal_no_photo', 0))}</td></tr>
-    <tr><td style="padding:6px 0;color:#5A6878">Loading type</td><td>${loadingType === 'pallet' ? 'Pallet' : 'Non-pallet'}</td></tr>
-    <tr><td style="padding:6px 0;color:#5A6878">Loaded contents</td><td style="font-weight:600">${totalsRow}</td></tr>
-    <tr><td style="padding:6px 0;color:#5A6878">Inspector</td><td>${esc(inspector?.full_name || '—')}</td></tr>
-    <tr><td style="padding:6px 0;color:#5A6878">Approved by</td><td>${esc(reviewer?.full_name || '—')}</td></tr>
+  <h3 style="color:#1F3A5F;margin:0 0 10px">Shipping &amp; Container Details</h3>
+  <table style="width:100%;border-collapse:collapse;margin:0 0 8px;font-size:14px">
+    <tr><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5;width:18%">PO No.</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5;width:32%">${esc(cl.po_no || '—')}</td><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5;width:18%">Container No.</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5;width:32%">${esc(cl.container_no || '—')}</td></tr>
+    <tr><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Seal No.</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(cl.seal_no || '—')}</td><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">BL Number</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(data.bl_no || '—')}</td></tr>
+    <tr><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Loading Type</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${loadingType === 'pallet' ? 'Palletised' : 'Non-palletised'}</td><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Date Loaded</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(data.date_loaded || '—')}</td></tr>
+    <tr><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Est. Port Departure</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(data.etd || '—')}</td><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Est. Port Arrival</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(data.eta || '—')}</td></tr>
+    <tr><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Departure Port</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(data.dep_port || '—')}</td><td style="padding:7px 8px;color:#5A6878;border-bottom:1px solid #EEF1F5">Destination Port</td><td style="padding:7px 8px;font-weight:600;border-bottom:1px solid #EEF1F5">${esc(data.dest_port || '—')}</td></tr>
+    <tr><td style="padding:7px 8px;color:#5A6878">Inspector</td><td style="padding:7px 8px;font-weight:600">${esc(inspector?.full_name || '—')}</td><td style="padding:7px 8px;color:#5A6878">Approved By</td><td style="padding:7px 8px;font-weight:600">${esc(reviewer?.full_name || '—')}</td></tr>
   </table>
-  ${cl.summary?.corrective_action ? `<div style="background:#FBE9E7;border:1px solid #C0392B;border-radius:6px;padding:10px 12px;margin-bottom:16px;font-size:13px"><b>Notes:</b> ${esc(cl.summary.corrective_action)}</div>` : ''}
-
-  <h3 style="color:#1F3A5F;border-bottom:2px solid #1F3A5F;padding-bottom:4px">Container Loading Inspection Photos</h3>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:18px">${inspPhotoHtml}</table>
-
-  <h3 style="color:#1F3A5F;border-bottom:2px solid #1F3A5F;padding-bottom:4px">${loadingType === 'pallet' ? 'Pallet Packing' : 'Non-Pallet Loading'}</h3>
-  ${contentsHtml}
+  ${cl.summary?.corrective_action ? `<div style="background:#FBE9E7;border:1px solid #C0392B;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:13px"><b>Notes:</b> ${esc(cl.summary.corrective_action)}</div>` : ''}
 </div>
 <div style="background:#F7F9FB;border:1px solid #D5DBE4;border-top:none;padding:12px 24px;border-radius:0 0 10px 10px">
   <p style="color:#5A6878;font-size:11px;margin:0">CONFIDENTIAL — PROPERTY OF NITRA · Photo links are private and expire after 7 days.</p>

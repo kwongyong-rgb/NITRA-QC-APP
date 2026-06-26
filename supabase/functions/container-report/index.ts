@@ -58,14 +58,25 @@ Deno.serve(async (req) => {
     }
     const partNos = Object.keys(qtyByPart)
     const norm = (x: string) => (x || '').trim().toUpperCase()
+    const parseEt = (pn: string) => { const m = pn.match(/\bET\s*(\d+)/i); return m ? m[1] : '' }
     const { data: skuRows } = partNos.length
       ? await supa.from('skus').select('part_no,model,size,pcd,cb_mm,offset_txt,finish')
       : { data: [] as any[] }
-    const skuMap: Record<string, any> = {}
-    for (const s of (skuRows || [])) skuMap[norm(s.part_no)] = s
+    const byPart: Record<string, any> = {}
+    const byModel: Record<string, any> = {}
+    for (const s of (skuRows || [])) {
+      byPart[norm(s.part_no)] = s
+      if (s.model && !byModel[norm(s.model)]) byModel[norm(s.model)] = s
+    }
     const contents = partNos.sort().map((pn) => {
-      const s = skuMap[norm(pn)] || {}
-      return { part_no: pn, model: s.model || '', size: s.size || '', pcd: s.pcd || '', cb: s.cb_mm ?? '', et: s.offset_txt || '', color: s.finish || '', qty: qtyByPart[pn] }
+      const exact = byPart[norm(pn)]
+      if (exact) return { part_no: pn, model: exact.model || '', size: exact.size || '', pcd: exact.pcd || '', cb: exact.cb_mm ?? '', et: exact.offset_txt || '', color: exact.finish || '', qty: qtyByPart[pn] }
+      // fall back to the base model (first token) so physical specs still fill in even
+      // when this specific finish variant isn't registered in the SKU master
+      const token = pn.split(/\s+/)[0]
+      const m = byModel[norm(token)]
+      if (m) return { part_no: pn, model: m.model || token, size: m.size || '', pcd: m.pcd || '', cb: m.cb_mm ?? '', et: parseEt(pn) || m.offset_txt || '', color: '', qty: qtyByPart[pn] }
+      return { part_no: pn, model: '', size: '', pcd: '', cb: '', et: parseEt(pn), color: '', qty: qtyByPart[pn] }
     })
 
     // per-pallet packing checks

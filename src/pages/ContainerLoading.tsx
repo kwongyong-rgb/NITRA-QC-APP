@@ -177,7 +177,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       if (!ok) return
     }
     await patch({ insp_status: 'submitted' })
-    await supabase.from('container_loadings').update({ submitted_at: new Date().toISOString() }).eq('id', cl.id)
+    await supabase.from('container_loadings').update({ submitted_at: new Date().toISOString(), inspector_id: profile.id }).eq('id', cl.id)
     alert('Submitted for approval.')
   }
 
@@ -230,7 +230,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
   return (
     <div className="page" style={{ paddingTop: 16 }}>
-      <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav('/')}>← Home</button>
+      <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav(-1)}>← Back</button>
 
       {(profile.role === 'approver' || cl.insp_status === 'approved') && (
         <div className="card">
@@ -267,7 +267,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       )}
 
       <div className="card">
-        <h2>Container Loading</h2>
+        <h2>Container Details</h2>
         <div className="grid2">
           <label className="fld"><span>PO number</span>
             <input className="txt" disabled={!editable} value={cl.po_no} onChange={e => patch({ po_no: e.target.value })} /></label>

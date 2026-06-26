@@ -127,8 +127,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
-        <h2 style={{ margin: '0 0 8px' }}>Consolidated PO report</h2>
-        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>One shareable report with an overview, jump-to navigation, and every wheel SKU + container in this PO.</p>
+        <h2 style={{ margin: '0 0 10px' }}>Consolidated PO report</h2>
+        <p className="muted" style={{ margin: '0 0 14px', fontSize: 13, lineHeight: 1.5 }}>One shareable report with a container-loading and wheel-inspection overview for this PO. Each row links out to its own interactive report.</p>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <Link to={`/po-report/${encodeURIComponent(po)}`} target="_blank">
             <button className="btn" style={{ minHeight: 40, padding: '6px 16px' }}>Open consolidated report</button>

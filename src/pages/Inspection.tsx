@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
@@ -86,6 +86,7 @@ const CORRECTIVE_TEMPLATES: { label: string; text: (f: string) => string }[] = [
 
 export default function Inspection({ profile }: { profile: Profile }) {
   const { id } = useParams()
+  const nav = useNavigate()
   const { t, bi, lang } = useI18n()
   const [insp, setInsp] = useState<Insp|null>(null)
   const [sku, setSku] = useState<Sku|null>(null)
@@ -676,6 +677,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   return (
     <div className="page">
+      <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, marginBottom:12 }} onClick={() => nav(-1)}>← Back</button>
       {/* Header */}
       <div className="card">
         <div className="row"><h2 style={{ flex:1 }}>{insp.part_no} <span className={`pill ${insp.status}`}>{insp.status}</span></h2></div>

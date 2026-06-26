@@ -371,27 +371,38 @@ export async function openContainerReport(id: string, lang: string = 'en') {
       [T.insp, c.inspectorName], [T.appr, c.reviewerName],
     ]
     const detailsHtml = detailRows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v || '—')}</td></tr>`).join('')
-    const contentsHtml = (d.contents || []).length ? `<h3>${esc(T.contents)}</h3><table class="grid"><tr><th>${esc(T.partNumber)}</th><th>${esc(T.model)}</th><th>${esc(T.size)}</th><th>${esc(T.pcd)}</th><th>${esc(T.cb)}</th><th>${esc(T.et)}</th><th>${esc(T.color)}</th><th>${esc(T.qty)}</th></tr>${d.contents.map((r: any) => `<tr><td>${esc(r.part_no)}</td><td>${esc(r.model || '—')}</td><td>${esc(r.size || '—')}</td><td>${esc(r.pcd || '—')}</td><td>${esc(r.cb !== '' && r.cb != null ? r.cb : '—')}</td><td>${esc(r.et || '—')}</td><td>${esc(r.color || '—')}</td><td>${esc(r.qty)}</td></tr>`).join('')}</table>` : ''
-    const palletsHtml = (d.pallets || []).length ? `<h3>${esc(T.packing)}</h3>${d.pallets.map((pl: any) => `<div class="pl"><b>${esc(T.pallet)} ${pl.n}</b>${(pl.checks || []).length ? `<table class="grid">${pl.checks.map((ck: any) => `<tr><td>${esc(ck.label)}</td><td class="v ${ck.value === 'F' ? 'f' : ck.value === 'P' ? 'p' : ''}">${ck.value === 'P' ? esc(T.pass) : ck.value === 'F' ? esc(T.fail) : esc(T.na)}</td></tr>`).join('')}</table>` : '<div class="muted">—</div>'}</div>`).join('')}` : ''
-    const photosHtml = (d.photoGroups || []).length ? `<h3>${esc(T.photos)}</h3>${d.photoGroups.map((g: any) => `<div class="grp"><div class="gl">${esc(g.label)}</div><div class="gal">${g.photos.map((p: any) => p.url ? `<figure><a href="${esc(p.url)}" target="_blank">${p.mediaType === 'video' ? `🎬 ${esc(T.photos)}` : `<img src="${esc(p.url)}">`}</a><figcaption><b class="${p.isPass ? 'p' : 'f'}">${p.isPass ? esc(T.pass) : esc(T.fail)}</b>${p.comment ? ' · ' + esc(p.comment) : ''}</figcaption></figure>` : '').join('')}</div></div>`).join('')}` : ''
+    const contentsHtml = (d.contents || []).length ? `<h3>${esc(T.contents)}</h3><table class="grid contents"><thead><tr><th>${esc(T.partNumber)}</th><th>${esc(T.model)}</th><th>${esc(T.size)}</th><th>${esc(T.pcd)}</th><th>${esc(T.cb)}</th><th>${esc(T.et)}</th><th>${esc(T.color)}</th><th class="num">${esc(T.qty)}</th></tr></thead><tbody>${d.contents.map((r: any) => `<tr><td class="pn">${esc(r.part_no)}</td><td>${esc(r.model || '—')}</td><td>${esc(r.size || '—')}</td><td>${esc(r.pcd || '—')}</td><td>${esc(r.cb !== '' && r.cb != null ? r.cb : '—')}</td><td>${esc(r.et || '—')}</td><td>${esc(r.color || '—')}</td><td class="num">${esc(r.qty)}</td></tr>`).join('')}</tbody></table>` : ''
+    const palletsHtml = (d.pallets || []).length ? `<h3>${esc(T.packing)}</h3>${d.pallets.map((pl: any) => `<div class="pl"><div class="pl-h">${esc(T.pallet)} ${pl.n}</div>${(pl.checks || []).length ? `<table class="grid checks"><tbody>${pl.checks.map((ck: any) => `<tr><td>${esc(ck.label)}</td><td class="v ${ck.value === 'F' ? 'f' : ck.value === 'P' ? 'p' : ''}">${ck.value === 'P' ? esc(T.pass) : ck.value === 'F' ? esc(T.fail) : esc(T.na)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted">—</div>'}</div>`).join('')}` : ''
+    const photosHtml = (d.photoGroups || []).length ? `<h3>${esc(T.photos)}</h3>${d.photoGroups.map((g: any) => `<div class="grp"><div class="gl">${esc(g.label)}</div><div class="gal">${g.photos.map((p: any) => p.url ? `<figure>${p.mediaType === 'video' ? `<div class="vid">🎬</div>` : `<img src="${esc(p.url)}">`}${p.comment ? `<figcaption>${esc(p.comment)}</figcaption>` : ''}</figure>` : '').join('')}</div></div>`).join('')}` : ''
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(T.title)} — ${esc(c.container_no)}</title>
 <style>:root{--navy:#1F3A5F;--ink-soft:#5A6878;--line:#D5DBE4;--pass:#1F8A4C;--fail:#C0392B}
-*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#18222E;margin:0;padding:0}
-.head{background:var(--navy);color:#fff;padding:18px 24px;display:flex;align-items:center;gap:16px}
-.head img{height:42px;max-width:200px;object-fit:contain}.head .t{font-size:20px;font-weight:800}
-.body{padding:20px 24px}h3{color:var(--navy);margin:18px 0 6px;font-size:15px}
-table.grid,table.det{width:100%;border-collapse:collapse;font-size:13px}
-table.det td{padding:7px 8px;border-bottom:1px solid #EAEFF4}table.det td.k{color:var(--ink-soft);font-weight:600;width:42%}
-table.grid td{padding:6px 8px;border-bottom:1px solid #EAEFF4}table.grid td.v{text-align:right;font-weight:700}td.v.p{color:var(--pass)}td.v.f{color:var(--fail)}
-table.grid th{background:var(--navy);color:#fff;text-align:left;padding:7px 8px;font-size:11px;white-space:nowrap}
-.pl{border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
-ul{margin:4px 0;padding-left:20px}.muted{color:var(--ink-soft)}
-.gl{font-weight:700;color:var(--navy);margin:8px 0 4px}
-.gal{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.gal img{width:100%;height:90px;object-fit:cover;border-radius:6px;display:block}
-.gal figcaption{font-size:10px;color:var(--ink-soft);margin-top:3px}.gal b.p{color:var(--pass)}.gal b.f{color:var(--fail)}
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#18222E;margin:0;padding:0;font-size:13px}
+.head{background:var(--navy);color:#fff;padding:16px 24px;display:flex;align-items:center;gap:16px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.head img{height:42px;max-width:200px;object-fit:contain}.head .t{font-size:20px;font-weight:800}.head .sub{color:#9FB6D4;font-size:12px;margin-top:2px}
+.body{padding:18px 24px}
+h3{background:var(--navy);color:#fff;margin:20px 0 8px;font-size:14px;padding:8px 12px;border-radius:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+table.det{width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--line)}
+table.det td{padding:8px 10px;border-bottom:1px solid #EAEFF4}table.det td.k{color:var(--ink-soft);font-weight:600;width:32%;background:#F7F9FB;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+table.grid{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid var(--line)}
+table.grid th{background:var(--navy);color:#fff;text-align:left;padding:8px 10px;font-size:11px;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+table.grid th.num,table.grid td.num{text-align:right}
+table.grid td{padding:7px 10px;border-bottom:1px solid #EAEFF4;vertical-align:middle}
+table.grid td.pn{font-weight:700}
+table.contents tbody tr:nth-child(even) td{background:#F7F9FB;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+table.grid td.v{text-align:right;font-weight:700}td.v.p{color:var(--pass)}td.v.f{color:var(--fail)}
+.pl{border:1px solid var(--line);border-radius:8px;margin-top:10px;overflow:hidden}
+.pl-h{background:#EEF3F8;color:var(--navy);font-weight:700;padding:7px 12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.pl .grid{border:none}.pl .grid td{padding:6px 12px}
+.muted{color:var(--ink-soft);padding:8px 12px}
+.grp{margin-top:12px;border:1px solid var(--line);border-radius:8px;overflow:hidden;break-inside:avoid}
+.gl{background:#EEF3F8;color:var(--navy);font-weight:700;font-size:12.5px;padding:7px 12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.gal{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px}
+.gal img,.gal .vid{width:100%;height:90px;object-fit:cover;border-radius:6px;display:block;border:1px solid var(--line)}
+.gal .vid{display:flex;align-items:center;justify-content:center;background:#EEF1F5;font-size:24px}
+.gal figcaption{font-size:10px;color:var(--ink-soft);margin-top:4px}
 .foot{padding:12px 24px;color:#9AA7B5;font-size:10px;letter-spacing:2px;border-top:1px solid var(--line);margin-top:18px}
-@media print{.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}h3{break-after:avoid}.grp,.pl,tr{break-inside:avoid}@page{size:A4;margin:12mm}}</style></head>
-<body><div class="head">${d.logoUrl ? `<img src="${esc(d.logoUrl)}">` : '<div class="t">NITRA</div>'}<div><div class="t">📦 ${esc(T.title)}</div><div style="color:#9FB6D4;font-size:12px">${esc(c.container_no || '')}</div></div></div>
+@media print{h3,.grp,.pl,tr{break-inside:avoid}@page{size:A4;margin:12mm}}</style></head>
+<body><div class="head">${d.logoUrl ? `<img src="${esc(d.logoUrl)}">` : '<div class="t">NITRA</div>'}<div><div class="t">${esc(T.title)}</div><div class="sub">${esc(c.container_no || '')}</div></div></div>
 <div class="body"><h3>${esc(T.details)}</h3><table class="det">${detailsHtml}</table>${contentsHtml}${palletsHtml}${photosHtml}</div>
 <div class="foot">CONFIDENTIAL — PROPERTY OF NITRA</div>
 <script>window.addEventListener('load',function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},600);});</script>
@@ -435,16 +446,21 @@ export async function openPoReport(po: string, lang: string = 'en') {
     const contRows = (d.containers || []).map((c: any) => `<tr><td><b>${esc(c.container_no || '—')}</b></td><td>${esc(c.bl_no || '—')}</td><td>${esc(dt(c.etd))}</td><td>${esc(dt(c.eta))}</td><td>${esc(c.dest_port || '—')}</td></tr>`).join('')
     const skuRows = (d.skus || []).map((s: any) => `<tr><td><b>${esc(s.insp?.part_no || '—')}</b></td><td>${esc(s.sku?.size || '—')}</td><td>${esc(s.sku?.pcd || '—')}</td><td>${esc(s.sku?.cb_mm ?? '—')}</td><td>${esc(s.sku?.offset_txt || '—')}</td><td>${esc(s.sku?.finish || '—')}</td><td>${esc(dispText(s.insp))}</td></tr>`).join('')
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(T.title)} — ${esc(po)}</title>
-<style>:root{--navy:#1F3A5F;--ink-soft:#5A6878;--line:#D5DBE4}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#18222E;margin:0}
-.head{background:var(--navy);color:#fff;padding:18px 24px}.head .t{font-size:20px;font-weight:800}.head .s{color:#9FB6D4;font-size:12px;margin-top:3px}
-.body{padding:20px 24px}h3{color:var(--navy);margin:18px 0 6px;font-size:15px}
-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}th{background:var(--navy);color:#fff;text-align:left;padding:8px;font-size:11px;white-space:nowrap}td{padding:7px 8px;border-bottom:1px solid #EAEFF4}
+<style>:root{--navy:#1F3A5F;--ink-soft:#5A6878;--line:#D5DBE4}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#18222E;margin:0;font-size:13px}
+.head{background:var(--navy);color:#fff;padding:16px 24px;display:flex;align-items:center;gap:16px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.head img{height:44px;max-width:200px;object-fit:contain}.head .tt{border-left:1px solid rgba(255,255,255,.25);padding-left:16px}.head .t{font-size:20px;font-weight:800}.head .s{color:#9FB6D4;font-size:12px;margin-top:3px}
+.body{padding:18px 24px}
+h3{background:var(--navy);color:#fff;margin:18px 0 8px;font-size:14px;padding:8px 12px;border-radius:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+table{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid var(--line)}
+th{background:var(--navy);color:#fff;text-align:left;padding:8px 10px;font-size:11px;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+td{padding:7px 10px;border-bottom:1px solid #EAEFF4}td.pn{font-weight:700}
+tbody tr:nth-child(even) td{background:#F7F9FB;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .foot{padding:12px 24px;color:#9AA7B5;font-size:10px;letter-spacing:2px;border-top:1px solid var(--line);margin-top:18px}
-@media print{.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}h3{break-after:avoid}tr{break-inside:avoid}@page{size:A4 landscape;margin:12mm}}</style></head>
-<body><div class="head">${d.logoUrl ? `<img src="${esc(d.logoUrl)}" style="height:40px;max-width:200px;object-fit:contain">` : ''}<div class="t">${esc(T.title)} · ${esc(po)}</div><div class="s">${esc(T.containersH)}: ${(d.containers || []).length} · ${esc(T.wheelInsp)}: ${(d.skus || []).length}</div></div>
+@media print{h3,tr{break-inside:avoid}@page{size:A4 landscape;margin:12mm}}</style></head>
+<body><div class="head">${d.logoUrl ? `<img src="${esc(d.logoUrl)}">` : '<div class="t">NITRA</div>'}<div class="tt"><div class="t">${esc(T.title)} · ${esc(po)}</div><div class="s">${esc(T.containersH)}: ${(d.containers || []).length} · ${esc(T.wheelInsp)}: ${(d.skus || []).length}</div></div></div>
 <div class="body">
-<h3>${esc(T.containersH)}</h3><table><tr><th>${esc(T.container)}</th><th>${esc(T.bl)}</th><th>${esc(T.etd)}</th><th>${esc(T.eta)}</th><th>${esc(T.dest)}</th></tr>${contRows || `<tr><td colspan="5">—</td></tr>`}</table>
-<h3>${esc(T.wheelInsp)}</h3><table><tr><th>${esc(T.partNo)}</th><th>${esc(T.size)}</th><th>${esc(T.pcd)}</th><th>${esc(T.cb)}</th><th>${esc(T.et)}</th><th>${esc(T.color)}</th><th>${esc(T.disp)}</th></tr>${skuRows || `<tr><td colspan="7">—</td></tr>`}</table>
+<h3>${esc(T.containersH)}</h3><table><thead><tr><th>${esc(T.container)}</th><th>${esc(T.bl)}</th><th>${esc(T.etd)}</th><th>${esc(T.eta)}</th><th>${esc(T.dest)}</th></tr></thead><tbody>${contRows || `<tr><td colspan="5">—</td></tr>`}</tbody></table>
+<h3>${esc(T.wheelInsp)}</h3><table><thead><tr><th>${esc(T.partNo)}</th><th>${esc(T.size)}</th><th>${esc(T.pcd)}</th><th>${esc(T.cb)}</th><th>${esc(T.et)}</th><th>${esc(T.color)}</th><th>${esc(T.disp)}</th></tr></thead><tbody>${skuRows || `<tr><td colspan="7">—</td></tr>`}</tbody></table>
 </div><div class="foot">CONFIDENTIAL — PROPERTY OF NITRA</div>
 <script>window.addEventListener('load',function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},600);});</script>
 </body></html>`

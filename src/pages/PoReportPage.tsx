@@ -79,10 +79,11 @@ export default function PoReportPage() {
     const emails = raw.split(',').map(s => s.trim()).filter(Boolean)
     if (!emails.length) { alert('No recipients entered.'); return }
     setEmailing(true)
-    const { error } = await supabase.functions.invoke('send-po-report', { body: { po, emails } })
+    const { data: res, error } = await supabase.functions.invoke('send-po-report', { body: { po, emails } })
     setEmailing(false)
     if (error) { alert('Email failed: ' + error.message); return }
-    alert('Consolidated PO report link sent.')
+    if (res && res.ok === false) { alert('Email failed: ' + (res.error || 'Unknown error')); return }
+    alert('Consolidated PO report sent to: ' + emails.join(', '))
   }
 
   if (err) return <div style={page}><div style={{ ...card, borderColor: 'var(--fail)' }}><h2 style={{ color: 'var(--fail)' }}>Report unavailable</h2><p>{err}</p></div></div>

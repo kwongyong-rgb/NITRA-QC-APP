@@ -96,7 +96,7 @@ export default function ContainerReportPage() {
           <div style={{ maxWidth: 1100, margin: '0 auto', padding: '11px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <span style={{ width: 10, height: 10, borderRadius: 999, background: st.color, flexShrink: 0 }} />
-              <span style={{ color: st.color, fontWeight: 800, fontSize: 15 }}>📦 {st.text}</span>
+              <span style={{ color: st.color, fontWeight: 800, fontSize: 15 }}>{st.text}</span>
             </div>
             <span style={{ color: st.color, opacity: .6, fontWeight: 700, fontSize: 10.5, letterSpacing: 1.4, whiteSpace: 'nowrap' }}>{L.statusTag}</span>
           </div>
