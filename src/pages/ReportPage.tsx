@@ -52,7 +52,7 @@ const DISPOSITION_CLS: Record<string, string> = {
 const DICT: Record<Lang, Record<string, string>> = {
   en: {
     title: 'QC Interactive Report', subtitle: 'Live report · clickable photo & video evidence',
-    viewed: 'Viewed', finalDisposition: 'FINAL DISPOSITION', pendingDisposition: 'PENDING DISPOSITION',
+    viewed: 'Viewed', finalDisposition: 'FINAL DECISION', pendingDisposition: 'DECISION PENDING',
     inspectionReport: 'Inspection Report',
     partNo: 'Part No. / SKU', finish: 'Finish', modelSize: 'Model / Size', pcdEtCb: 'PCD · ET · CB',
     poNo: 'PO No.', batch: 'Batch', lotSize: 'Lot Size', samples: 'Samples', inspector: 'Inspector',
@@ -120,7 +120,7 @@ const DICT: Record<Lang, Record<string, string>> = {
   },
   zh: {
     title: 'QC 互动报告', subtitle: '实时报告 · 可点击的照片和视频证据',
-    viewed: '查看时间', finalDisposition: '最终处置', pendingDisposition: '处置待定',
+    viewed: '查看时间', finalDisposition: '最终决定', pendingDisposition: '决定待定',
     inspectionReport: '检验报告',
     partNo: '零件号 / SKU', finish: '表面处理', modelSize: '型号 / 尺寸', pcdEtCb: 'PCD · ET · CB',
     poNo: '采购订单号', batch: '批次', lotSize: '批量', samples: '抽样', inspector: '检验员',

@@ -318,7 +318,7 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
   <h3>${lang === 'en' ? 'Inspection Outcome' : '检验结果'} <small>${lang === 'en' ? '检验结果' : 'Inspection Outcome'}</small></h3>
   <table class="grid"><tr><th>${lang === 'en' ? 'Parameter' : '项目'}</th><th>${lang === 'en' ? 'Checked' : '已检'}</th><th>${lang === 'en' ? 'Pass' : '合格'}</th><th>${lang === 'en' ? 'Fail' : '不合格'}</th><th>${lang === 'en' ? 'Failing pieces' : '不合格件号'}</th><th>${lang === 'en' ? 'Outcome' : '结果'}</th></tr>${outcomeRows}</table>
 
-  <h3>${lang === 'en' ? 'Defect Log' : '缺陷记录'} <small>${defects.length} ${lang === 'en' ? 'logged (one row per failed piece)' : '条（每件一行）'}</small></h3>
+  <h3>${lang === 'en' ? 'Inspection Outcome' : '检验结果记录'} <small>${defects.length} ${lang === 'en' ? 'logged (one row per failed piece)' : '条（每件一行）'}</small></h3>
   ${defects.length
     ? `<table class="grid"><tr><th>${lang === 'en' ? 'Inspected Parameter' : '检验项目'}</th><th>${lang === 'en' ? 'Piece #' : '件号'}</th><th>${lang === 'en' ? 'Photo' : '照片'}</th></tr>${defectRows}</table>`
     : `<div style="color:var(--ink-soft)">${lang === 'en' ? 'No defects logged.' : '暂无缺陷记录。'}</div>`}

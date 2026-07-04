@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import EmailModal from '../components/EmailModal'
 import { useI18n } from '../lib/i18n'
 import { openInspectionReport } from '../lib/report'
 
@@ -46,26 +47,20 @@ export default function Approvals() {
     load()
   }
 
-  const emailContReport = async (id: string) => {
-    const raw = window.prompt('Enter recipient email(s), comma-separated. Leave blank to use the saved distribution list.')
-    if (raw === null) return
-    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
-    const { data, error } = await supabase.functions.invoke('send-container-report', { body: { container_loading_id: id, emails } })
-    if (error) { alert('Email failed: ' + error.message); return }
-    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
-    alert('Container report email sent.')
-  }
-
-
-
-  const emailInteractiveReport = async (id: string) => {
-    const raw = prompt('Enter recipient email(s), separated by commas. Leave blank to use the saved distribution list.')
-    if (raw === null) return
-    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
-    const { data, error } = await supabase.functions.invoke('send-report', { body: { inspection_id: id, emails } })
-    if (error) { alert('Email failed: ' + error.message); return }
-    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
-    alert('Interactive report email sent.\n\nReport link:\n' + (data?.report_url || ''))
+  const [emailFor, setEmailFor] = useState<{ kind: 'container' | 'inspection'; id: string } | null>(null)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const emailContReport = (id: string) => setEmailFor({ kind: 'container', id })
+  const emailInteractiveReport = (id: string) => setEmailFor({ kind: 'inspection', id })
+  const doEmail = async (emails: string[]) => {
+    if (!emailFor) return
+    setEmailBusy(true)
+    const fn = emailFor.kind === 'container' ? 'send-container-report' : 'send-report'
+    const body = emailFor.kind === 'container' ? { container_loading_id: emailFor.id, emails } : { inspection_id: emailFor.id, emails }
+    const { data, error } = await supabase.functions.invoke(fn, { body })
+    setEmailBusy(false)
+    if (error || data?.ok === false) { alert('Email failed: ' + (error?.message || data?.error || 'Unknown error')); return }
+    setEmailFor(null)
+    alert(emailFor.kind === 'container' ? 'Container report email sent.' : 'Interactive report email sent.')
   }
 
   return (
@@ -110,6 +105,8 @@ export default function Approvals() {
           </div>
         ))}
       </div>
+      {emailFor && <EmailModal title="Email report" allowBlank sending={emailBusy}
+        onSend={doEmail} onClose={() => setEmailFor(null)} />}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { openPoReport } from '../lib/report'
+import EmailModal from '../components/EmailModal'
 
 type Lang = 'en' | 'de' | 'zh'
 const LANGS: { id: Lang; label: string }[] = [{ id: 'en', label: 'EN' }, { id: 'de', label: 'DE' }, { id: 'zh', label: '中文' }]
@@ -11,7 +12,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     title: 'Consolidated PO Report', subtitle: 'All container loadings & wheel inspections for this PO', viewed: 'Viewed',
     containersH: 'Container Loadings', wheelInsp: 'Wheel Inspections',
     container: 'Container No.', bl: 'BL Number', etd: 'Est. Port Departure', eta: 'Est. Port Arrival', destPort: 'Destination Port',
-    partNo: 'Part Number', size: 'Size', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Color', disposition: 'Disposition',
+    partNo: 'Part Number', size: 'Size', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Color', disposition: 'Decision',
     noSkus: 'No wheel inspections in this PO.', noConts: 'No container loadings in this PO.',
     pendingDisp: 'PENDING DISPOSITION', email: 'Email', pdf: 'PDF', loading: 'Loading consolidated report…',
   },
@@ -27,7 +28,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     title: '订单综合报告', subtitle: '本订单的所有集装箱装柜与轮毂检验', viewed: '查看时间',
     containersH: '集装箱装柜', wheelInsp: '轮毂检验',
     container: '集装箱号', bl: '提单号', etd: '预计离港', eta: '预计到港', destPort: '目的港',
-    partNo: '产品编号', size: '尺寸', pcd: 'PCD', cb: 'CB', et: 'ET', color: '颜色', disposition: '处置',
+    partNo: '产品编号', size: '尺寸', pcd: 'PCD', cb: 'CB', et: 'ET', color: '颜色', disposition: '决定',
     noSkus: '本订单暂无轮毂检验。', noConts: '本订单暂无集装箱装柜。',
     pendingDisp: '待定处置', email: '邮件', pdf: 'PDF', loading: '正在加载综合报告…',
   },
@@ -73,16 +74,14 @@ export default function PoReportPage() {
   const skus: any[] = data?.skus || []
   const containers: any[] = data?.containers || []
 
-  const emailReport = async () => {
-    const raw = window.prompt('Email this consolidated PO report to (comma-separated):', 'kyong@nitrawheels.com')
-    if (raw === null) return
-    const emails = raw.split(',').map(s => s.trim()).filter(Boolean)
-    if (!emails.length) { alert('No recipients entered.'); return }
+  const [emailOpen, setEmailOpen] = useState(false)
+  const emailReport = () => setEmailOpen(true)
+  const doEmail = async (emails: string[]) => {
     setEmailing(true)
     const { data: res, error } = await supabase.functions.invoke('send-po-report', { body: { po, emails } })
     setEmailing(false)
-    if (error) { alert('Email failed: ' + error.message); return }
-    if (res && res.ok === false) { alert('Email failed: ' + (res.error || 'Unknown error')); return }
+    if (error || (res && res.ok === false)) { alert('Email failed: ' + (error?.message || res?.error || 'Unknown error')); return }
+    setEmailOpen(false)
     alert('Consolidated PO report sent to: ' + emails.join(', '))
   }
 
@@ -159,6 +158,8 @@ export default function PoReportPage() {
 
         <div style={{ textAlign: 'center', color: '#9AA7B5', fontSize: 10, letterSpacing: 2, padding: '14px 0' }}>CONFIDENTIAL — PROPERTY OF NITRA</div>
       </main>
+      {emailOpen && <EmailModal title="Email consolidated PO report" sending={emailing}
+        onSend={doEmail} onClose={() => setEmailOpen(false)} />}
     </div>
   )
 }

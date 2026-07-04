@@ -7,6 +7,7 @@ import { MediaCapture, MediaThumb, ReassignModal, CopyModal } from '../component
 import { openContainerReport } from '../lib/report'
 import type { Profile } from '../App'
 import PartPicker from '../components/PartPicker'
+import EmailModal from '../components/EmailModal'
 
 type PFNA = 'P' | 'F' | 'NA' | undefined
 interface Content { part_no: string; qty: number; off_po?: boolean }
@@ -260,13 +261,15 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     alert(status === 'approved' ? 'Approved. Use “Email container report” to send it when ready.' : 'Rejected and sent back to the inspector.')
   }
 
-  const emailReport = async () => {
-    const raw = window.prompt('Enter recipient email(s), comma-separated. Leave blank to use the saved distribution list.')
-    if (raw === null) return
-    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const emailReport = () => setEmailOpen(true)
+  const doEmail = async (emails: string[]) => {
+    setEmailBusy(true)
     const { data, error } = await supabase.functions.invoke('send-container-report', { body: { container_loading_id: cl.id, emails } })
-    if (error) { alert('Email failed: ' + error.message); return }
-    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
+    setEmailBusy(false)
+    if (error || data?.ok === false) { alert('Email failed: ' + (error?.message || data?.error || 'Unknown error')); return }
+    setEmailOpen(false)
     alert('Container report email sent.')
   }
 
@@ -596,6 +599,8 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         </div>
       )}
 
+      {emailOpen && <EmailModal title="Email container report" allowBlank sending={emailBusy}
+        onSend={doEmail} onClose={() => setEmailOpen(false)} />}
     </div>
   )
 }

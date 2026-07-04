@@ -15,6 +15,7 @@ export default function Home({ profile }: { profile: Profile }) {
   const [newPo, setNewPo] = useState<{ po_no: string; customer_name: string; po_date: string; destination: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [resume, setResume] = useState<{ kind: 'inspection' | 'container'; id: string; label: string; po: string; at: string } | null>(null)
 
   const load = async () => {
     const { data: i } = await supabase.from('inspections').select('id,po_no,updated_at').order('updated_at', { ascending: false }).limit(500)
@@ -41,6 +42,23 @@ export default function Home({ profile }: { profile: Profile }) {
     setLoaded(true)
   }
   useEffect(() => { load() }, [])
+
+  // "Continue where you left off": the newest draft/rejected item started by me.
+  useEffect(() => {
+    (async () => {
+      const [{ data: i }, { data: c }] = await Promise.all([
+        supabase.from('inspections').select('id,part_no,po_no,updated_at').eq('inspector_id', profile.id).in('status', ['draft', 'rejected']).order('updated_at', { ascending: false }).limit(1),
+        supabase.from('container_loadings').select('id,container_no,po_no,updated_at').eq('inspector_id', profile.id).in('insp_status', ['draft', 'rejected']).order('updated_at', { ascending: false }).limit(1),
+      ])
+      const insp = (i || [])[0] as { id: string; part_no: string; po_no: string; updated_at: string } | undefined
+      const cont = (c || [])[0] as { id: string; container_no: string; po_no: string; updated_at: string } | undefined
+      if (insp && (!cont || insp.updated_at > cont.updated_at)) {
+        setResume({ kind: 'inspection', id: insp.id, label: insp.part_no || '(no part no.)', po: insp.po_no || '', at: insp.updated_at })
+      } else if (cont) {
+        setResume({ kind: 'container', id: cont.id, label: cont.container_no || '(no container no.)', po: cont.po_no || '', at: cont.updated_at })
+      }
+    })()
+  }, [profile.id])
 
   const newPO = () => {
     if (profile.role === 'admin') {
@@ -82,6 +100,17 @@ export default function Home({ profile }: { profile: Profile }) {
 
   return (
     <div className="page">
+      {resume && (
+        <Link to={resume.kind === 'inspection' ? `/inspection/${resume.id}` : `/container/${resume.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="card" style={{ marginBottom: 12, border: '1.5px solid var(--navy)', cursor: 'pointer' }}>
+            <div className="muted" style={{ fontSize: 12, fontWeight: 700, letterSpacing: .5 }}>▶ CONTINUE WHERE YOU LEFT OFF</div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>
+              {resume.kind === 'inspection' ? 'Wheel inspection' : 'Container loading'} · {resume.label}
+            </div>
+            <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>PO {resume.po || '—'} · last edited {new Date(resume.at).toLocaleString()}</div>
+          </div>
+        </Link>
+      )}
       <button className="btn" style={{ width: '100%', marginBottom: 16 }} onClick={newPO}>＋ New PO</button>
       <div className="card">
         <h2>Purchase Orders / 采购订单</h2>

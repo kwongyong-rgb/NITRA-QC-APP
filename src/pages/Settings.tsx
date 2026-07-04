@@ -44,8 +44,7 @@ export default function Settings() {
             <input className="txt" type="number" value={samp.fun_inc} onChange={e => setSamp({ ...samp, fun_inc: num(e.target.value) })} /></label>
           <label className="fld"><span>Extra pieces on defect</span>
             <input className="txt" type="number" value={samp.extra_on_defect} onChange={e => setSamp({ ...samp, extra_on_defect: num(e.target.value) })} /></label>
-          <label className="fld"><span>100% inspection trigger (e.g. 0.10 = 10%)</span>
-            <input className="txt" type="number" step="0.01" value={pf.trigger_rate} onChange={e => setPf({ trigger_rate: num(e.target.value) })} /></label>
+
         </div>
       </div>
       <div className="card">

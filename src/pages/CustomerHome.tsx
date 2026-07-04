@@ -13,8 +13,8 @@ const DICT: Record<CLang, Record<string, string>> = {
   en: {
     myPos: 'My Purchase Orders', greeting: 'Welcome', signOut: 'Sign out',
     po: 'PO Number', date: 'PO Date', dest: 'Destination', skus: 'SKUs',
-    status: 'Inspection Status', disp: 'Final Disposition', report: 'Report',
-    open: 'Open report', none: 'No purchase orders have been assigned to your account yet. Please contact your NITRA representative.',
+    status: 'Inspection Status', disp: 'Final Decision', report: 'Report',
+    open: 'Open report', copy: 'Copy link', copied: 'Link copied', none: 'No purchase orders have been assigned to your account yet. Please contact your NITRA representative.',
     pending: 'Pending Inspection', inprog: 'Inspection In Progress', approved: 'Approved',
     loading: 'Loading…',
   },
@@ -22,7 +22,7 @@ const DICT: Record<CLang, Record<string, string>> = {
     myPos: 'Meine Bestellungen', greeting: 'Willkommen', signOut: 'Abmelden',
     po: 'Bestellnummer', date: 'Bestelldatum', dest: 'Zielort', skus: 'SKUs',
     status: 'Prüfstatus', disp: 'Endgültige Entscheidung', report: 'Bericht',
-    open: 'Bericht öffnen', none: 'Ihrem Konto wurden noch keine Bestellungen zugewiesen. Bitte kontaktieren Sie Ihren NITRA-Ansprechpartner.',
+    open: 'Bericht öffnen', copy: 'Link kopieren', copied: 'Link kopiert', none: 'Ihrem Konto wurden noch keine Bestellungen zugewiesen. Bitte kontaktieren Sie Ihren NITRA-Ansprechpartner.',
     pending: 'Prüfung ausstehend', inprog: 'Prüfung läuft', approved: 'Freigegeben',
     loading: 'Wird geladen…',
   },
@@ -30,7 +30,7 @@ const DICT: Record<CLang, Record<string, string>> = {
     myPos: 'Mes bons de commande', greeting: 'Bienvenue', signOut: 'Se déconnecter',
     po: 'Nº de commande', date: 'Date de commande', dest: 'Destination', skus: 'SKU',
     status: 'État de l’inspection', disp: 'Décision finale', report: 'Rapport',
-    open: 'Ouvrir le rapport', none: 'Aucun bon de commande n’a encore été attribué à votre compte. Veuillez contacter votre représentant NITRA.',
+    open: 'Ouvrir le rapport', copy: 'Copier le lien', copied: 'Lien copié', none: 'Aucun bon de commande n’a encore été attribué à votre compte. Veuillez contacter votre représentant NITRA.',
     pending: 'Inspection à venir', inprog: 'Inspection en cours', approved: 'Approuvé',
     loading: 'Chargement…',
   },
@@ -52,6 +52,19 @@ export default function CustomerHome({ profile }: { profile: Profile }) {
   const [lang, setLang] = useState<CLang>(() => (localStorage.getItem('nitra_cust_lang') as CLang) || 'en')
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
+  const [narrow, setNarrow] = useState(window.innerWidth < 720)
+  const [copiedPo, setCopiedPo] = useState('')
+  useEffect(() => {
+    const onR = () => setNarrow(window.innerWidth < 720)
+    window.addEventListener('resize', onR)
+    return () => window.removeEventListener('resize', onR)
+  }, [])
+  const copyLink = async (poNo: string) => {
+    try {
+      await navigator.clipboard.writeText(`${location.origin}/po-report/${encodeURIComponent(poNo)}`)
+      setCopiedPo(poNo); setTimeout(() => setCopiedPo(''), 2000)
+    } catch { /* ignore */ }
+  }
   const L = DICT[lang]
 
   const pick = (l: CLang) => { setLang(l); localStorage.setItem('nitra_cust_lang', l) }
@@ -120,7 +133,25 @@ export default function CustomerHome({ profile }: { profile: Profile }) {
           <h3 style={{ marginBottom: 8 }}>{L.myPos}</h3>
           {loading && <p className="muted">{L.loading}</p>}
           {!loading && rows.length === 0 && <p className="muted">{L.none}</p>}
-          {!loading && rows.length > 0 && (
+          {!loading && rows.length > 0 && narrow && (
+            <div>
+              {rows.map(r => (
+                <div key={r.id} style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                  <div style={{ fontWeight: 800, fontSize: 16 }}>{r.po_no}</div>
+                  <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{fmtDate(r.po_date)}{r.destination ? ` · ${r.destination}` : ''}{r.totalSkus ? ` · ${r.totalSkus} ${L.skus}` : ''}</div>
+                  <div style={{ marginTop: 6, fontSize: 14 }}><b>{L.status}:</b> {statusOf(r)}</div>
+                  <div style={{ marginTop: 2, fontSize: 14 }}><b>{L.disp}:</b> {dispOf(r)}</div>
+                  <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                    <a href={`/po-report/${encodeURIComponent(r.po_no)}`} target="_blank" rel="noreferrer" style={{ flex: 1 }}>
+                      <button className="btn" style={{ width: '100%', minHeight: 44 }}>{L.open}</button>
+                    </a>
+                    <button className="btn ghost" style={{ minHeight: 44 }} onClick={() => copyLink(r.po_no)}>{copiedPo === r.po_no ? '✓ ' + L.copied : L.copy}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && rows.length > 0 && !narrow && (
             <div style={{ overflowX: 'auto' }}>
               <table className="tbl" style={{ minWidth: 640 }}>
                 <thead><tr>
@@ -137,9 +168,12 @@ export default function CustomerHome({ profile }: { profile: Profile }) {
                       <td style={{ textAlign: 'center' }}>{statusOf(r)}</td>
                       <td>{dispOf(r)}</td>
                       <td style={{ textAlign: 'center' }}>
-                        <a href={`/po-report/${encodeURIComponent(r.po_no)}`} target="_blank" rel="noreferrer">
-                          <button className="btn ghost" style={{ minHeight: 34, padding: '4px 10px', fontSize: 13 }}>{L.open}</button>
-                        </a>
+                        <div className="row" style={{ gap: 6, justifyContent: 'center' }}>
+                          <a href={`/po-report/${encodeURIComponent(r.po_no)}`} target="_blank" rel="noreferrer">
+                            <button className="btn ghost" style={{ minHeight: 34, padding: '4px 10px', fontSize: 13 }}>{L.open}</button>
+                          </a>
+                          <button className="btn ghost" style={{ minHeight: 34, padding: '4px 10px', fontSize: 13 }} onClick={() => copyLink(r.po_no)}>{copiedPo === r.po_no ? '✓' : L.copy}</button>
+                        </div>
                       </td>
                     </tr>
                   ))}

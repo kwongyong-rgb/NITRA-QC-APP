@@ -44,7 +44,7 @@ const STR = {
   settings:       { en: 'Settings',                   zh: '设置' },
   skus:           { en: 'SKUs',                       zh: 'SKU管理' },
   users:          { en: 'Users',                      zh: '用户管理' },
-  refLibrary:     { en: 'Reference Photos',           zh: '参考照片' },
+  refLibrary:     { en: 'Reference Library',          zh: '参考资料库' },
   nominal:        { en: 'Nominal',                    zh: '标称' },
   tolerance:      { en: 'Tolerance',                  zh: '公差' },
   result:         { en: 'Result',                     zh: '判定' },

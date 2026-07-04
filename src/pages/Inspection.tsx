@@ -12,6 +12,7 @@ import RichText from '../components/RichText'
 import { REF_MAP } from '../lib/refmap'
 import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
+import EmailModal from '../components/EmailModal'
 
 type Tab5 = 'form'|'measure'|'pallet'|'extra'|'100pct'
 
@@ -526,15 +527,17 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
 
 
-  const emailInteractiveReport = async () => {
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const emailInteractiveReport = () => { if (insp) setEmailOpen(true) }
+  const doEmailReport = async (emails: string[]) => {
     if (!insp) return
-    const raw = prompt('Enter recipient email(s), separated by commas. Leave blank to use the saved distribution list.')
-    if (raw === null) return
-    const emails = raw.split(',').map(v => v.trim()).filter(Boolean)
+    setEmailBusy(true)
     const { data, error } = await supabase.functions.invoke('send-report', { body: { inspection_id: insp.id, emails } })
-    if (error) { alert('Email failed: ' + error.message); return }
-    if (data?.ok === false) { alert('Email failed: ' + (data?.error || 'Unknown error')); return }
-    alert('Interactive report email sent.\n\nReport link:\n' + (data?.report_url || ''))
+    setEmailBusy(false)
+    if (error || data?.ok === false) { alert('Email failed: ' + (error?.message || data?.error || 'Unknown error')); return }
+    setEmailOpen(false)
+    alert('Interactive report email sent.')
   }
 
   const getPhotosFor = (itemKey: string, pNo: number) => photos.filter(p => p.item_key===itemKey && p.piece_no===pNo)
@@ -1190,6 +1193,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
         <CopyModal inspectionId={insp.id} photo={modal.photo} allItems={allItemsForReassign}
           onDone={() => { setModal(null); recordAmend('Copied a photo'); load() }} onClose={() => setModal(null)} />
       )}
+      {emailOpen && <EmailModal title="Email inspection report" allowBlank sending={emailBusy}
+        onSend={doEmailReport} onClose={() => setEmailOpen(false)} />}
     </div>
   )
 }

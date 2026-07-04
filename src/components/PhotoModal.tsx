@@ -38,9 +38,17 @@ export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string,
     setUploading(true)
     const ext = type === 'video' ? 'mp4' : 'jpg'
     const path = `${crypto.randomUUID()}.${ext}`
-    const { error } = await supabase.storage.from('qc-photos').upload(path, f, { contentType: f.type })
+    // Weak-WiFi protection: retry up to 3 times with backoff before failing.
+    let error: { message: string } | null = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await supabase.storage.from('qc-photos').upload(path, f, { contentType: f.type, upsert: true })
+      error = res.error
+      if (!error) break
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1500))
+    }
     setUploading(false)
     if (!error) onUploaded(path, type)
+    else alert(`Upload failed after 3 attempts (${error.message}). Check the WiFi and try again — the photo is still on your device.`)
   }
 
   return (

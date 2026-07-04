@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../App'
 import PoInfo from './PoInfo'
+import EmailModal from '../components/EmailModal'
 
 interface Insp { id: string; part_no: string; status: string; updated_at: string; inspector_id: string }
 interface Cont { id: string; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string }
@@ -37,15 +38,14 @@ export default function PoHub({ profile }: { profile: Profile }) {
     if (data) nav(`/container/${data.id}`)
   }
 
-  const emailPoReport = async () => {
-    const input = prompt('Email the consolidated PO report to (comma-separated):', 'kyong@nitrawheels.com')
-    if (input === null) return
-    const emails = input.split(',').map(s => s.trim()).filter(Boolean)
-    if (!emails.length) { alert('No recipients entered.'); return }
+  const [emailOpen, setEmailOpen] = useState(false)
+  const emailPoReport = () => setEmailOpen(true)
+  const doEmailPo = async (emails: string[]) => {
     setBusy(true)
     const { error } = await supabase.functions.invoke('send-po-report', { body: { po, emails } })
     setBusy(false)
     if (error) { alert('Email failed: ' + error.message); return }
+    setEmailOpen(false)
     alert('Consolidated PO report link sent.')
   }
 
@@ -140,6 +140,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
           <button className="btn ghost" style={{ minHeight: 40, padding: '6px 16px' }} disabled={busy} onClick={emailPoReport}>✉ Email consolidated report</button>
         </div>
       </div>
+      {emailOpen && <EmailModal title="Email consolidated PO report" sending={busy}
+        onSend={doEmailPo} onClose={() => setEmailOpen(false)} />}
     </div>
   )
 }
