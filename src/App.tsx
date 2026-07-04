@@ -11,6 +11,7 @@ import Settings from './pages/Settings'
 import Skus from './pages/Skus'
 import TeamPage from './pages/TeamPage'
 import SetPassword from './pages/SetPassword'
+import CustomerHome from './pages/CustomerHome'
 import RefLibrary from './pages/RefLibrary'
 import ReportPage from './pages/ReportPage'
 import PoReportPage from './pages/PoReportPage'
@@ -89,26 +90,10 @@ export default function App() {
     return <SetPassword forced onDone={() => { setMustReset(false); nav('/') }} />
   }
 
-  // Customers get their own minimal space. The full customer dashboard ships
-  // in Phase 3 — until then they see a friendly holding page and nothing else.
+  // Customers get their own dashboard: assigned POs, status, and report links.
+  // RLS (migration 19) scopes their data server-side; this is the whole UI.
   if (profile.role === 'customer') {
-    return (
-      <>
-        <header className="topbar">
-          <img src="/logo-white.png" alt="NITRA" />
-          <span className="title">QC Inspection</span>
-          <nav className="topbar-nav open" style={{ marginLeft: 'auto' }}>
-            <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>Sign out</button>
-          </nav>
-        </header>
-        <div className="page">
-          <div className="card">
-            <h2 style={{ marginTop: 0 }}>Welcome, {profile.full_name}</h2>
-            <p className="muted">Your customer dashboard — assigned purchase orders, inspection status, and reports — is being prepared and will appear here soon. Your NITRA contact will share report links by email in the meantime.</p>
-          </div>
-        </div>
-      </>
-    )
+    return <CustomerHome profile={profile} />
   }
 
   return (
