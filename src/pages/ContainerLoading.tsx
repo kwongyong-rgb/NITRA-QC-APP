@@ -6,10 +6,12 @@ import { PALLET_PACKING_ITEMS, CONTAINER_PHOTO_ITEMS } from '../lib/standard'
 import { MediaCapture, MediaThumb, ReassignModal, CopyModal } from '../components/PhotoModal'
 import { openContainerReport } from '../lib/report'
 import type { Profile } from '../App'
+import PartPicker from '../components/PartPicker'
 
 type PFNA = 'P' | 'F' | 'NA' | undefined
-interface Content { part_no: string; qty: number }
-interface PalletData { contents: Content[]; checks: Record<string, PFNA> }
+interface Content { part_no: string; qty: number; off_po?: boolean }
+interface LabelScan { raw_text: string; part_no: string | null; qty: number | null; pallet_no: string | null; at: string; by: string }
+interface PalletData { contents: Content[]; checks: Record<string, PFNA>; label_scan?: LabelScan }
 interface CLData { loading_type?: 'pallet' | 'non_pallet'; pallet_count?: number; pallets?: Record<string, PalletData>; non_pallet_contents?: Content[]; date_loaded?: string; etd?: string; eta?: string; bl_no?: string; dest_port?: string; dep_port?: string }
 interface CL {
   id: string; po_no: string; container_no: string; seal_no: string
@@ -27,6 +29,9 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [skuList, setSkuList] = useState<string[]>([])
+  const [poParts, setPoParts] = useState<Set<string> | null>(null)
+  const [poQty, setPoQty] = useState<Map<string, number>>(new Map())
+  const [scan, setScan] = useState<{ pallet: number; busy: boolean; fields?: { part_no: string; qty: string; pallet_no: string }; raw?: string; warn?: string[]; err?: string } | null>(null)
   const [capture, setCapture] = useState<{ itemKey: string; pieceNo: number; isPass: boolean } | null>(null)
   const [history, setHistory] = useState<{ palletNo: number; prevChecks: Record<string, PFNA> }[]>([])
   const [activePallet, setActivePallet] = useState(1)
@@ -54,6 +59,18 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     }
   }, [])
 
+  // Ordered items for this CL's PO — powers the ON-PO badge, off-PO warning,
+  // and the qty-vs-remaining check in the label scan review.
+  const loadPoItems = async (poNo: string) => {
+    if (!poNo || !poNo.trim()) { setPoParts(null); setPoQty(new Map()); return }
+    const { data: po } = await supabase.from('pos').select('id').eq('po_no', poNo).maybeSingle()
+    if (!po) { setPoParts(null); setPoQty(new Map()); return }
+    const { data: items } = await supabase.from('po_items').select('part_no,qty_ordered').eq('po_id', po.id)
+    const list = (items as { part_no: string; qty_ordered: number }[]) || []
+    setPoParts(list.length ? new Set(list.map(i => i.part_no)) : null)
+    setPoQty(new Map(list.map(i => [i.part_no, i.qty_ordered])))
+  }
+
   useEffect(() => {
     (async () => {
       const { data: skus } = await supabase.from('skus').select('part_no').eq('active', true).order('part_no')
@@ -68,6 +85,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       if (error) { setErr(error.message); return }
       setCl(data as CL)
       await loadPhotos(id!)
+      loadPoItems((data as CL).po_no)
     })()
   }, [id, profile.id, nav, loadPhotos])
 
@@ -128,6 +146,56 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     if (error) { alert('Could not save photo: ' + error.message + '\n\nIf this mentions a missing column or policy, run migration 07 in the Supabase SQL Editor.'); return false }
     return true
   }
+  // AI label scan: runs OCR on a just-uploaded pallet-label photo, then shows
+  // an editable review with PO comparison warnings. Nothing saves until the
+  // inspector confirms.
+  const runScan = async (palletNo: number, path: string) => {
+    setScan({ pallet: palletNo, busy: true })
+    const { data, error } = await supabase.functions.invoke('ocr-label', { body: { path } })
+    if (error || !data?.ok) {
+      let msg = error?.message || data?.error || 'Scan failed.'
+      try { const ctx = (error as { context?: Response } | null)?.context; if (ctx) { const j = await ctx.json(); if (j?.error) msg = j.error } } catch { /* ignore */ }
+      setScan({ pallet: palletNo, busy: false, err: msg })
+      return
+    }
+    const f = data.fields || {}
+    const warn: string[] = []
+    if (!f.part_no) warn.push('Part number could not be read — enter it manually below.')
+    if (f.part_no && poParts && poParts.size > 0 && !poParts.has(f.part_no)) warn.push(`${f.part_no} is not listed on PO ${cl?.po_no}.`)
+    if (f.part_no && f.qty && poQty.has(f.part_no)) {
+      const ordered = poQty.get(f.part_no) || 0
+      const already = loadedSoFar(f.part_no)
+      if (already + f.qty > ordered) warn.push(`Quantity check: ${already} already recorded + ${f.qty} on this label exceeds ${ordered} ordered.`)
+    }
+    setScan({ pallet: palletNo, busy: false, raw: data.raw_text || '',
+      warn, fields: { part_no: f.part_no || '', qty: f.qty ? String(f.qty) : '', pallet_no: f.pallet_no || '' } })
+  }
+  // Loaded so far for a part, across THIS container's saved contents.
+  const loadedSoFar = (part: string) => {
+    let sum = 0
+    for (const pd of Object.values(cl?.data.pallets || {})) for (const c of (pd.contents || [])) if (c.part_no === part) sum += c.qty || 0
+    for (const c of (cl?.data.non_pallet_contents || [])) if (c.part_no === part) sum += c.qty || 0
+    return sum
+  }
+  const confirmScan = () => {
+    if (!scan?.fields || !cl) return
+    const part = scan.fields.part_no.trim()
+    const qty = parseInt(scan.fields.qty, 10)
+    if (!part) { alert('Enter the part number before confirming.'); return }
+    if (!Number.isFinite(qty) || qty <= 0) { alert('Enter a valid quantity.'); return }
+    const offPo = !!(poParts && poParts.size > 0 && !poParts.has(part))
+    const n = scan.pallet
+    const pd = palletOf(n)
+    const pallets = { ...(cl.data.pallets || {}) }
+    pallets[n] = {
+      ...pd,
+      contents: [...(pd.contents || []).filter(c => c.part_no), { part_no: part, qty, off_po: offPo || undefined }],
+      label_scan: { raw_text: scan.raw || '', part_no: part, qty, pallet_no: scan.fields.pallet_no || null, at: new Date().toISOString(), by: profile.full_name },
+    }
+    setData({ ...cl.data, pallets })
+    setScan(null)
+  }
+
   const onCaptured = async (path: string, type: 'photo' | 'video') => {
     if (!capture) return
     const ok = await insertPhoto(capture.itemKey, capture.pieceNo, capture.isPass, path, type)
@@ -270,7 +338,9 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         <h2>Container Details</h2>
         <div className="grid2">
           <label className="fld"><span>PO number</span>
-            <input className="txt" disabled={!editable} value={cl.po_no} onChange={e => patch({ po_no: e.target.value })} /></label>
+            <input className="txt" disabled={!editable} value={cl.po_no}
+              onChange={e => patch({ po_no: e.target.value })}
+              onBlur={e => loadPoItems(e.target.value)} /></label>
           <label className="fld"><span>Status</span>
             <select className="sel" disabled={!editable} value={cl.status} onChange={e => patch({ status: e.target.value })}>
               <option value="in_progress">In progress</option><option value="loaded">Loaded</option><option value="hold">Hold</option>
@@ -330,8 +400,8 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
             const arr = cl.data.non_pallet_contents || []
             return (
               <div key={ci} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <input className="txt" list="cl-skus" placeholder="Part no." disabled={!editable} value={c.part_no} style={{ flex: 2 }}
-                  onChange={e => { const a = [...arr]; a[ci] = { ...a[ci], part_no: e.target.value }; set(a) }} />
+                <PartPicker value={c.part_no} disabled={!editable} poParts={poParts}
+                  onChange={(part, offPo) => { const a = [...arr]; a[ci] = { ...a[ci], part_no: part, off_po: offPo || undefined }; set(a) }} />
                 <input className="txt" type="number" min={0} placeholder="Qty" disabled={!editable} value={c.qty || ''} style={{ flex: 1 }}
                   onChange={e => { const a = [...arr]; a[ci] = { ...a[ci], qty: +e.target.value || 0 }; set(a) }} />
                 {editable && <button className="btn ghost" style={{ minHeight: 40, padding: '0 12px' }} onClick={() => set(arr.filter((_, i) => i !== ci))}>✕</button>}
@@ -374,7 +444,11 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Pallet label photo {labelPhotos.length === 0 && <span style={{ color: 'var(--ink-soft)' }}>· no photo yet</span>}</div>
-                  {editable && <MediaCapture label="Label" onUploaded={async (path, type) => { const ok = await insertPhoto('pallet_label', n, true, path, type); if (ok) loadPhotos(cl.id) }} />}
+                  {editable && <MediaCapture label="Label" onUploaded={async (path, type) => { const ok = await insertPhoto('pallet_label', n, true, path, type); if (ok) { loadPhotos(cl.id); if (type === 'photo') runScan(n, path) } }} />}
+                  {editable && labelPhotos.length > 0 && (
+                    <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13, marginTop: 6 }}
+                      onClick={() => runScan(n, labelPhotos[labelPhotos.length - 1].storage_path)}>🔍 Scan label with AI</button>
+                  )}
                   <PhotoStrip itemKey="pallet_label" pieceNo={n} />
                 </div>
 
@@ -382,8 +456,8 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Contents (part no. + quantity)</div>
                   {(pd.contents || []).map((c, ci) => (
                     <div key={ci} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                      <input className="txt" list="cl-skus" placeholder="Part no." disabled={!editable} value={c.part_no} style={{ flex: 2 }}
-                        onChange={e => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], part_no: e.target.value }; updateContents(n, arr) }} />
+                      <PartPicker value={c.part_no} disabled={!editable} poParts={poParts}
+                        onChange={(part, offPo) => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], part_no: part, off_po: offPo || undefined }; updateContents(n, arr) }} />
                       <input className="txt" type="number" min={0} placeholder="Qty" disabled={!editable} value={c.qty || ''} style={{ flex: 1 }}
                         onChange={e => { const arr = [...pd.contents]; arr[ci] = { ...arr[ci], qty: +e.target.value || 0 }; updateContents(n, arr) }} />
                       {editable && <button className="btn ghost" style={{ minHeight: 40, padding: '0 12px' }} onClick={() => updateContents(n, pd.contents.filter((_, i) => i !== ci))}>✕</button>}
@@ -486,6 +560,42 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
           </div>
         </div>
       )}
+      {scan && (
+        <div className="modal-overlay" onClick={() => !scan.busy && setScan(null)}>
+          <div className="modal" style={{ width: 'min(480px, 94vw)' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Label scan — Pallet {scan.pallet}</h2>
+            {scan.busy && <p className="muted">Reading the label…</p>}
+            {!scan.busy && scan.err && (
+              <>
+                <p style={{ color: 'var(--fail)' }}>{scan.err}</p>
+                <button className="btn ghost" onClick={() => setScan(null)}>Close</button>
+              </>
+            )}
+            {!scan.busy && scan.fields && (
+              <>
+                <p className="muted" style={{ fontSize: 13 }}>Check the values read from the label. Nothing is saved until you confirm.</p>
+                {(scan.warn || []).map((w, i) => (
+                  <div key={i} style={{ background: '#FCF2DD', border: '1px solid var(--amber, #B7791F)', color: '#7A5514', borderRadius: 8, padding: '8px 10px', fontSize: 13, marginBottom: 8 }}>⚠ {w}</div>
+                ))}
+                <label className="fld"><span>Part number</span>
+                  <PartPicker value={scan.fields.part_no} poParts={poParts}
+                    onChange={(part) => setScan({ ...scan, fields: { ...scan.fields!, part_no: part } })} /></label>
+                <label className="fld"><span>Quantity on label</span>
+                  <input className="txt" inputMode="numeric" value={scan.fields.qty}
+                    onChange={e => setScan({ ...scan, fields: { ...scan.fields!, qty: e.target.value } })} /></label>
+                <label className="fld"><span>Pallet no. on label</span>
+                  <input className="txt" value={scan.fields.pallet_no}
+                    onChange={e => setScan({ ...scan, fields: { ...scan.fields!, pallet_no: e.target.value } })} /></label>
+                <div className="row" style={{ marginTop: 12, gap: 8 }}>
+                  <button className="btn" onClick={confirmScan}>Confirm & add to contents</button>
+                  <button className="btn ghost" onClick={() => setScan(null)}>Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

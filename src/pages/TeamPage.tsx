@@ -55,6 +55,7 @@ export default function TeamPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [invite, setInvite] = useState<InviteDraft | null>(null)
   const [inviting, setInviting] = useState(false)
+  const [createdCreds, setCreatedCreds] = useState<{ email: string; password: string } | null>(null)
   // PO assignment for customer users
   const [assignFor, setAssignFor] = useState<TeamUser | null>(null)
   const [allPos, setAllPos] = useState<{ id: string; po_no: string; customer_name: string | null }[]>([])
@@ -111,8 +112,7 @@ export default function TeamPage() {
       const created = invite
       setInvite(null)
       if (created.mode === 'password') {
-        flash(`User created. Give them the temporary password — they'll be asked to change it on first sign-in.`)
-        alert(`User created for ${created.email.trim()}\n\nTemporary password:\n${created.password}\n\nShare this with them securely. They must change it on first sign-in.`)
+        setCreatedCreds({ email: created.email.trim(), password: created.password })
       } else {
         flash(res.warning ? res.warning : `Invite sent to ${created.email.trim()}.`)
       }
@@ -279,6 +279,26 @@ export default function TeamPage() {
           </div>
         </div>
       )}
+      {createdCreds && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ width: 'min(460px, 94vw)' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>User created ✓</h2>
+            <p className="muted" style={{ fontSize: 13 }}>Share these sign-in details securely. This is the only time the password is shown — it cannot be retrieved later. They must change it on first sign-in.</p>
+            <label className="fld"><span>Email</span>
+              <input className="txt" readOnly value={createdCreds.email} onFocus={e => e.target.select()} /></label>
+            <label className="fld"><span>Temporary password</span>
+              <div className="row" style={{ gap: 8 }}>
+                <input className="txt" readOnly style={{ flex: 1, fontWeight: 700, letterSpacing: 1 }} value={createdCreds.password} onFocus={e => e.target.select()} />
+                <button className="btn ghost" style={{ minHeight: 40, padding: '4px 12px' }}
+                  onClick={async () => { try { await navigator.clipboard.writeText(`${createdCreds.email}\n${createdCreds.password}`); flash('Copied to clipboard.') } catch { /* select manually */ } }}>📋 Copy</button>
+              </div></label>
+            <div className="row" style={{ marginTop: 12 }}>
+              <button className="btn" onClick={() => setCreatedCreds(null)}>Done — I've shared it</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

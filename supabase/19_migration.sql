@@ -89,13 +89,21 @@ drop policy if exists photos_no_customer on photos;
 create policy photos_no_customer on photos
   as restrictive for select to authenticated using ( not is_customer() );
 
-drop policy if exists custom_disp_no_customer on custom_dispositions;
-create policy custom_disp_no_customer on custom_dispositions
-  as restrictive for select to authenticated using ( not is_customer() );
-
-drop policy if exists report_tr_no_customer on report_translations;
-create policy report_tr_no_customer on report_translations
-  as restrictive for select to authenticated using ( not is_customer() );
+-- Conditional: these tables exist in the repo's migration files but were
+-- never applied to the live DB (discovered during Phase 3 deploy).
+do $$
+begin
+  if to_regclass('public.custom_dispositions') is not null then
+    execute 'drop policy if exists custom_disp_no_customer on custom_dispositions';
+    execute 'create policy custom_disp_no_customer on custom_dispositions
+             as restrictive for select to authenticated using ( not is_customer() )';
+  end if;
+  if to_regclass('public.report_translations') is not null then
+    execute 'drop policy if exists report_tr_no_customer on report_translations';
+    execute 'create policy report_tr_no_customer on report_translations
+             as restrictive for select to authenticated using ( not is_customer() )';
+  end if;
+end $$;
 
 -- ---- Storage: customers cannot read the qc-photos bucket directly ----
 drop policy if exists qc_photos_no_customer on storage.objects;
