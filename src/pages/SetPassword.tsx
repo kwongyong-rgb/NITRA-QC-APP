@@ -58,7 +58,7 @@ export default function SetPassword({ onDone }: { onDone: () => void }) {
           </>
         )}
 
-        {!ready && !linkError && <p className="muted">Verifying your invite\u2026</p>}
+        {!ready && !linkError && <p className="muted">Verifying your invite…</p>}
 
         {ready && !done && (
           <>
@@ -72,14 +72,14 @@ export default function SetPassword({ onDone }: { onDone: () => void }) {
                 onKeyDown={e => { if (e.key === 'Enter') submit() }} /></label>
             {err && <div className="muted" style={{ color: 'var(--red, #C0392B)' }}>{err}</div>}
             <button className="btn" style={{ marginTop: 12 }} onClick={submit} disabled={busy}>
-              {busy ? 'Saving\u2026' : 'Save password & continue'}
+              {busy ? 'Saving…' : 'Save password & continue'}
             </button>
           </>
         )}
 
         {done && (
           <>
-            <p style={{ color: 'var(--green, #1F8A4C)', fontWeight: 600 }}>Password set. You\u2019re all set.</p>
+            <p style={{ color: 'var(--green, #1F8A4C)', fontWeight: 600 }}>Password set. You’re all set.</p>
             <button className="btn" onClick={onDone}>Continue to the app</button>
           </>
         )}

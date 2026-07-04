@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const supa = createClient(supaUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
     const [{ data: insps }, { data: conts }] = await Promise.all([
-      supa.from('inspections').select('id,part_no,status,updated_at').eq('po_no', po).order('part_no'),
+      supa.from('inspections').select('id,part_no,status,updated_at,report_logo_path').eq('po_no', po).order('part_no'),
       supa.from('container_loadings').select('*').eq('po_no', po).order('container_no'),
     ])
 
@@ -117,7 +117,36 @@ Deno.serve(async (req) => {
       }
     }
 
-    const logoUrl = (skus.find((s: any) => s.logoUrl)?.logoUrl) || null
+    // ---- Consolidated report logo: AUTO-PICK ----
+    // The old rule took the logo of the first wheel inspection (by part number)
+    // that had one set — so a single AVO-branded inspection sorting first would
+    // brand the whole consolidated report AVO. Instead we take a vote across
+    // EVERY inspection and container in this PO:
+    //   - an uploaded logo counts as a vote for that logo FILE PATH
+    //   - NO uploaded logo counts as a vote for the default NITRA logo
+    // The most common wins; a tie stays on the NITRA default. This means a
+    // single stray AVO upload can't outvote a PO that is otherwise NITRA.
+    // We tally report_logo_path (stable), not the per-report signed URLs (each of
+    // which is unique even when two reports share the same underlying logo file).
+    const DEFAULT = '__nitra_default__'
+    const logoCounts = new Map<string, number>()
+    const vote = (raw: unknown) => {
+      const p = String(raw || '').trim() || DEFAULT
+      logoCounts.set(p, (logoCounts.get(p) || 0) + 1)
+    }
+    for (const r of (insps || [])) vote(r?.report_logo_path)
+    for (const c of (conts || [])) vote(c?.report_logo_path)
+
+    let bestKey: string = DEFAULT
+    let bestCount = -1
+    let tied = false
+    for (const [k, n] of logoCounts) {
+      if (n > bestCount) { bestKey = k; bestCount = n; tied = false }
+      else if (n === bestCount) { tied = true }
+    }
+    // Only an outright winner that is a real uploaded logo overrides the default.
+    const chosenPath = (!tied && bestKey !== DEFAULT) ? bestKey : null
+    const logoUrl = chosenPath ? await signed(chosenPath) : null
     return json({ ok: true, po, lang, translationNote, logoUrl, skus, containers })
   } catch (e) {
     return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500)

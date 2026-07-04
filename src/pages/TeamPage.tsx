@@ -110,20 +110,20 @@ export default function TeamPage() {
           <button className="btn" onClick={() => { setErr(''); setInvite({ ...EMPTY_INVITE }) }}>+ Invite user</button>
         </div>
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-          Invite people, set whether they\u2019re an Inspector or Approver, and deactivate anyone who should no longer have access.
+          Invite people, set whether they’re an Inspector or Approver, and deactivate anyone who should no longer have access.
           Approvers can manage SKUs, settings, approvals and this page; inspectors cannot.
         </p>
 
         {err && <div className="muted" style={{ color: 'var(--red, #C0392B)', marginBottom: 10 }}>{err}</div>}
         {msg && <div className="muted" style={{ color: 'var(--green, #1F8A4C)', marginBottom: 10 }}>{msg}</div>}
 
-        {loading ? <p className="muted">Loading\u2026</p> : (
+        {loading ? <p className="muted">Loading…</p> : (
           <table className="tbl">
             <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th /></tr></thead>
             <tbody>
               {rows.map(u => (
                 <tr key={u.id} style={u.active ? undefined : { opacity: 0.55 }}>
-                  <td>{u.full_name || '\u2014'}{u.is_self && <span className="muted" style={{ fontSize: 12 }}> (you)</span>}</td>
+                  <td>{u.full_name || '—'}{u.is_self && <span className="muted" style={{ fontSize: 12 }}> (you)</span>}</td>
                   <td>{u.email}</td>
                   <td>
                     <select
@@ -163,7 +163,7 @@ export default function TeamPage() {
           <div className="modal" style={{ width: 'min(460px, 94vw)' }} onClick={e => e.stopPropagation()}>
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ margin: 0 }}>Invite a user</h2>
-              <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px' }} onClick={() => setInvite(null)}>\u2715</button>
+              <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px' }} onClick={() => setInvite(null)}>✕</button>
             </div>
             <div className="grid2">
               <label className="fld"><span>Full name</span>
@@ -180,11 +180,11 @@ export default function TeamPage() {
                 </select></label>
             </div>
             <p className="muted" style={{ fontSize: 12 }}>
-              They\u2019ll get a branded email from kyong@nitrawheels.com with a link to set their own password.
+              They’ll get a branded email from kyong@nitrawheels.com with a link to set their own password.
             </p>
             {err && <div className="muted" style={{ color: 'var(--red, #C0392B)' }}>{err}</div>}
             <div className="row" style={{ marginTop: 14 }}>
-              <button className="btn" onClick={sendInvite} disabled={inviting}>{inviting ? 'Sending\u2026' : 'Send invite'}</button>
+              <button className="btn" onClick={sendInvite} disabled={inviting}>{inviting ? 'Sending…' : 'Send invite'}</button>
               <button className="btn ghost" onClick={() => setInvite(null)} disabled={inviting}>Cancel</button>
             </div>
           </div>
