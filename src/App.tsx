@@ -12,6 +12,7 @@ import Skus from './pages/Skus'
 import TeamPage from './pages/TeamPage'
 import SetPassword from './pages/SetPassword'
 import CustomerHome from './pages/CustomerHome'
+import MyWork from './pages/MyWork'
 import RefLibrary from './pages/RefLibrary'
 import ReportPage from './pages/ReportPage'
 import PoReportPage from './pages/PoReportPage'
@@ -96,6 +97,9 @@ export default function App() {
     return <CustomerHome profile={profile} />
   }
 
+  const isWorkScreen = location.pathname.startsWith('/inspection/') || location.pathname.startsWith('/container/')
+  const showBottomNav = profile.role === 'inspector' && !isWorkScreen
+
   return (
     <>
       <header className="topbar">
@@ -129,8 +133,31 @@ export default function App() {
           <Route path="/users" element={profile.role === 'admin' ? <TeamPage /> : <Navigate to="/" />} />
           <Route path="/team" element={<Navigate to="/users" />} />
           <Route path="/reference" element={<RefLibrary profile={profile} />} />
+          <Route path="/mywork" element={<MyWork profile={profile} />} />
         </Routes>
       </ErrorBoundary>
+      {showBottomNav && (
+        <>
+          <div style={{ height: 64 }} />
+          <nav style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 25,
+            background: 'var(--navy)', display: 'flex',
+            paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            {[
+              { to: '/', label: 'POs', icon: '📋', active: location.pathname === '/' || location.pathname.startsWith('/po/') },
+              { to: '/mywork', label: 'My Work', icon: '🛠', active: location.pathname === '/mywork' },
+              { to: '/reference', label: 'Reference', icon: '🖼', active: location.pathname === '/reference' },
+            ].map(t => (
+              <Link key={t.to} to={t.to} style={{ flex: 1, textDecoration: 'none' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                  padding: '8px 0 10px', color: '#fff', opacity: t.active ? 1 : 0.6,
+                  borderTop: t.active ? '3px solid #fff' : '3px solid transparent', fontWeight: 700, fontSize: 12 }}>
+                  <span style={{ fontSize: 20 }}>{t.icon}</span>{t.label}
+                </div>
+              </Link>
+            ))}
+          </nav>
+        </>
+      )}
     </>
   )
 }

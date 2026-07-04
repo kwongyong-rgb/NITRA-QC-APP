@@ -33,6 +33,8 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [poParts, setPoParts] = useState<Set<string> | null>(null)
   const [poQty, setPoQty] = useState<Map<string, number>>(new Map())
   const [scan, setScan] = useState<{ pallet: number; busy: boolean; fields?: { part_no: string; qty: string; pallet_no: string }; raw?: string; warn?: string[]; err?: string } | null>(null)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailBusy, setEmailBusy] = useState(false)
   const [capture, setCapture] = useState<{ itemKey: string; pieceNo: number; isPass: boolean } | null>(null)
   const [history, setHistory] = useState<{ palletNo: number; prevChecks: Record<string, PFNA> }[]>([])
   const [activePallet, setActivePallet] = useState(1)
@@ -272,8 +274,6 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     alert(status === 'approved' ? 'Approved. Use “Email container report” to send it when ready.' : 'Rejected and sent back to the inspector.')
   }
 
-  const [emailOpen, setEmailOpen] = useState(false)
-  const [emailBusy, setEmailBusy] = useState(false)
   const emailReport = () => setEmailOpen(true)
   const doEmail = async (emails: string[]) => {
     setEmailBusy(true)
