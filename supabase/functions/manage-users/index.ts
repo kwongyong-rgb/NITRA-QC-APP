@@ -18,7 +18,7 @@
 //   reactivate { user_id }       -> lift the ban
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-type Role = 'inspector' | 'approver'
+type Role = 'inspector' | 'admin' | 'customer'
 const BAN_FOREVER = '876000h' // ~100 years; reversible via reactivate
 
 Deno.serve(async (req) => {
@@ -41,8 +41,10 @@ Deno.serve(async (req) => {
 
     const { data: callerProfile } = await admin
       .from('profiles').select('role').eq('id', callerId).single()
-    if (callerProfile?.role !== 'approver') {
-      return json({ ok: false, error: 'Approver access required.' }, 403)
+    // Accept both 'admin' (current) and 'approver' (pre-rename) so this
+    // function keeps working regardless of SQL/deploy ordering.
+    if (callerProfile?.role !== 'admin' && callerProfile?.role !== 'approver') {
+      return json({ ok: false, error: 'Admin access required.' }, 403)
     }
 
     // 2) Dispatch the requested action.
@@ -65,9 +67,10 @@ Deno.serve(async (req) => {
           is_self: u.id === callerId,
         }
       })
-      // Stable, readable order: approvers first, then by name/email.
+      // Stable, readable order: admins, then inspectors, then customers, then by name.
+      const rank = (r: string) => r === 'admin' ? 0 : r === 'inspector' ? 1 : 2
       rows.sort((a, b) =>
-        (a.role === b.role ? 0 : a.role === 'approver' ? -1 : 1) ||
+        (rank(a.role) - rank(b.role)) ||
         (a.full_name || a.email).localeCompare(b.full_name || b.email))
       return json({ ok: true, users: rows })
     }
@@ -78,7 +81,7 @@ Deno.serve(async (req) => {
       const role = body.role as Role
       if (!full_name) return json({ ok: false, error: 'Full name is required.' }, 400)
       if (!/.+@.+\..+/.test(email)) return json({ ok: false, error: 'A valid email is required.' }, 400)
-      if (role !== 'inspector' && role !== 'approver') return json({ ok: false, error: 'Role must be inspector or approver.' }, 400)
+      if (!['inspector', 'admin', 'customer'].includes(role)) return json({ ok: false, error: 'Role must be admin, inspector, or customer.' }, 400)
 
       // Reject duplicates up front (clear error beats a silent no-op).
       const existing = await findUserByEmail(admin, email)
@@ -114,14 +117,41 @@ Deno.serve(async (req) => {
       return json({ ok: true, user_id: newUserId, email })
     }
 
+    if (action === 'create_with_password') {
+      // Admin creates the account directly with a temporary password. The
+      // user is forced to choose their own password on first sign-in
+      // (user_metadata.must_reset gates the app until they do).
+      const full_name = String(body.full_name || '').trim()
+      const email = String(body.email || '').trim().toLowerCase()
+      const role = body.role as Role
+      const password = String(body.password || '')
+      if (!full_name) return json({ ok: false, error: 'Full name is required.' }, 400)
+      if (!/.+@.+\..+/.test(email)) return json({ ok: false, error: 'A valid email is required.' }, 400)
+      if (!['inspector', 'admin', 'customer'].includes(role)) return json({ ok: false, error: 'Role must be admin, inspector, or customer.' }, 400)
+      if (password.length < 8) return json({ ok: false, error: 'Temporary password must be at least 8 characters.' }, 400)
+
+      const existing = await findUserByEmail(admin, email)
+      if (existing) return json({ ok: false, error: `A user with ${email} already exists.` }, 409)
+
+      const { data: created, error: cErr } = await admin.auth.admin.createUser({
+        email, password, email_confirm: true,
+        user_metadata: { full_name, must_reset: true },
+      })
+      if (cErr || !created?.user) return json({ ok: false, error: `Could not create user: ${cErr?.message || 'unknown error'}` }, 500)
+
+      const { error: pErr } = await admin.from('profiles').upsert({ id: created.user.id, full_name, role })
+      if (pErr) return json({ ok: false, error: `User created but profile failed: ${pErr.message}` }, 500)
+      return json({ ok: true, user_id: created.user.id, email })
+    }
+
     if (action === 'set_role') {
       const user_id = String(body.user_id || '')
       const role = body.role as Role
-      if (role !== 'inspector' && role !== 'approver') return json({ ok: false, error: 'Role must be inspector or approver.' }, 400)
+      if (!['inspector', 'admin', 'customer'].includes(role)) return json({ ok: false, error: 'Role must be admin, inspector, or customer.' }, 400)
       if (!user_id) return json({ ok: false, error: 'Missing user_id.' }, 400)
-      // Guard: an approver cannot demote themselves (prevents locking out all approvers by accident).
-      if (user_id === callerId && role !== 'approver') {
-        return json({ ok: false, error: 'You cannot change your own role away from approver.' }, 400)
+      // Guard: an admin cannot demote themselves (prevents locking out all admins by accident).
+      if (user_id === callerId && role !== 'admin') {
+        return json({ ok: false, error: 'You cannot change your own role away from admin.' }, 400)
       }
       const { error } = await admin.from('profiles').update({ role }).eq('id', user_id)
       if (error) return json({ ok: false, error: error.message }, 500)
@@ -172,7 +202,7 @@ async function findUserByEmail(admin: ReturnType<typeof createClient>, email: st
 async function sendInviteEmail(email: string, fullName: string, role: Role, actionLink: string) {
   const key = Deno.env.get('RESEND_API_KEY')
   if (!key) return { ok: false, error: 'RESEND_API_KEY not set' }
-  const roleLabel = role === 'approver' ? 'Approver' : 'Inspector'
+  const roleLabel = role === 'admin' ? 'Admin' : role === 'customer' ? 'Customer' : 'Inspector'
   const html = inviteHtml(fullName, roleLabel, actionLink)
   try {
     const res = await fetch('https://api.resend.com/emails', {

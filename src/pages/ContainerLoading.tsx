@@ -74,7 +74,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   if (err) return <div className="page" style={{ paddingTop: 24 }}><p style={{ color: 'var(--fail)' }}>Error: {err}</p></div>
   if (!cl) return <div className="page" style={{ paddingTop: 24 }}><p className="muted">Loading…</p></div>
 
-  const editable = ['draft', 'rejected'].includes(cl.insp_status) || profile.role === 'approver'
+  const editable = ['draft', 'rejected'].includes(cl.insp_status) || profile.role === 'admin'
   const loadingType = cl.data.loading_type || 'pallet'
   const palletCount = cl.data.pallet_count ?? 0
   const pallets = Array.from({ length: palletCount }, (_, i) => i + 1)
@@ -232,7 +232,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     <div className="page" style={{ paddingTop: 16 }}>
       <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav(-1)}>← Back</button>
 
-      {(profile.role === 'approver' || cl.insp_status === 'approved') && (
+      {(profile.role === 'admin' || cl.insp_status === 'approved') && (
         <div className="card">
           <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <h2 style={{ flex: 1, marginBottom: 0 }}>Container Loading Inspection</h2>
@@ -240,7 +240,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
             <button className="btn ghost" style={{ minHeight: 40, padding: '6px 14px' }} onClick={openReport}>View Interactive Report</button>
             <button className="btn" style={{ minHeight: 40, padding: '6px 14px' }} onClick={emailReport}>Email Interactive Report</button>
           </div>
-          {profile.role === 'approver' && (
+          {profile.role === 'admin' && (
             <>
               <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                 <label className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}>
@@ -451,12 +451,12 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
         {['draft', 'rejected'].includes(cl.insp_status) && editable &&
           <button className="btn" style={{ width: '100%', marginTop: 14 }} onClick={submit}>Submit for approval</button>}
 
-        {cl.insp_status === 'submitted' && profile.role !== 'approver' &&
-          <p className="muted" style={{ marginTop: 10 }}>Submitted — awaiting approver sign-off.</p>}
+        {cl.insp_status === 'submitted' && profile.role !== 'admin' &&
+          <p className="muted" style={{ marginTop: 10 }}>Submitted — awaiting admin sign-off.</p>}
 
-        {cl.insp_status === 'submitted' && profile.role === 'approver' && (
+        {cl.insp_status === 'submitted' && profile.role === 'admin' && (
           <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Approver sign-off</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Admin sign-off</div>
             <input className="txt" placeholder="Review note (optional)…" value={reviewNote} onChange={e => setReviewNote(e.target.value)} />
             <div className="row" style={{ gap: 8, marginTop: 10 }}>
               <button className="btn ok" style={{ flex: 1 }} onClick={() => decide('approved')}>Approve</button>

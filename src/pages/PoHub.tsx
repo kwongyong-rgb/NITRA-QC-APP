@@ -61,8 +61,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
     if (error) { alert('Delete failed: ' + error.message); return }
     load()
   }
-  const canDelInsp = (r: Insp) => profile.role === 'approver' || (r.status === 'draft' && r.inspector_id === profile.id)
-  const canDelCont = (c: Cont) => profile.role === 'approver' || (['draft', 'rejected'].includes(c.insp_status) && c.inspector_id === profile.id)
+  const canDelInsp = (r: Insp) => profile.role === 'admin' || (r.status === 'draft' && r.inspector_id === profile.id)
+  const canDelCont = (c: Cont) => profile.role === 'admin' || (['draft', 'rejected'].includes(c.insp_status) && c.inspector_id === profile.id)
 
   const delPO = async () => {
     if (!confirm(`Delete the ENTIRE PO “${po || '(No PO)'}”?\n\nThis permanently deletes its ${insps.length} wheel inspection(s) and ${conts.length} container loading(s), including their photos.\n\nThis cannot be undone.`)) return
@@ -80,7 +80,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
       <div className="card">
         <h2 style={{ marginBottom: 4 }}>PO: {po || '(No PO)'}</h2>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{insps.length} wheel inspection(s) · {conts.length} container loading(s)</p>
-        {profile.role === 'approver' && (insps.length > 0 || conts.length > 0) &&
+        {profile.role === 'admin' && (insps.length > 0 || conts.length > 0) &&
           <button className="btn danger" style={{ minHeight: 36, padding: '6px 12px', fontSize: 13, marginTop: 8 }} onClick={delPO}>🗑 Delete entire PO</button>}
       </div>
 

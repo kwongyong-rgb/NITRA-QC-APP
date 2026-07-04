@@ -177,7 +177,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }, [photos]) // eslint-disable-line
 
   const inspectorEditable = !!(insp && (insp.status==='draft'||insp.status==='rejected') && insp.inspector_id===profile.id)
-  const canAmend = profile.role === 'approver'
+  const canAmend = profile.role === 'admin'
   const editable = inspectorEditable || canAmend
 
   // Audit: stamp who/when + a short log when the APPROVER edits a non-draft report
@@ -703,7 +703,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
         )}
         {canAmend && (
           <div className="row" style={{ gap:8, marginTop:10, flexWrap:'wrap' }}>
-            <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={openAmend}>✎ Amend details (approver)</button>
+            <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={openAmend}>✎ Amend details (admin)</button>
             {insp.status==='submitted' && <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={()=>changeStatus('draft','Returned to inspector','Return this submitted report to the inspector for edits?')}>↩ Return to inspector</button>}
             {insp.status==='approved' && <>
               <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13 }} onClick={()=>changeStatus('draft','Re-opened to draft','Re-open this approved report to draft for re-work?')}>↩ Re-open to draft</button>

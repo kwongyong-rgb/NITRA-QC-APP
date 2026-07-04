@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-// Shown when a user arrives via an invite (or password-reset) link. The Supabase
-// client parses the one-time token from the URL and establishes a temporary
-// session; here the user chooses a password, which finalises their account.
-export default function SetPassword({ onDone }: { onDone: () => void }) {
-  const [ready, setReady] = useState(false)        // session recovered from the link?
+// Shown when a user arrives via an invite (or password-reset) link, OR — in
+// `forced` mode — when an admin-created account with a temporary password
+// signs in for the first time and must choose their own password.
+export default function SetPassword({ onDone, forced = false }: { onDone: () => void; forced?: boolean }) {
+  const [ready, setReady] = useState(forced)   // forced: session already exists
   const [linkError, setLinkError] = useState(false) // link invalid/expired
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
@@ -16,6 +16,7 @@ export default function SetPassword({ onDone }: { onDone: () => void }) {
   // The token in the URL is exchanged for a session asynchronously by the client.
   // Wait for it (with a timeout) before showing the form.
   useEffect(() => {
+    if (forced) return // session already exists (temp-password sign-in)
     let cancelled = false
     const sub = supabase.auth.onAuthStateChange((_e, session) => {
       if (!cancelled && session) setReady(true)
@@ -33,14 +34,16 @@ export default function SetPassword({ onDone }: { onDone: () => void }) {
       if (!cancelled) setLinkError(true)
     })()
     return () => { cancelled = true; sub.data.subscription.unsubscribe() }
-  }, [])
+  }, [forced])
 
   const submit = async () => {
     setErr('')
     if (pw.length < 8) { setErr('Password must be at least 8 characters.'); return }
     if (pw !== pw2) { setErr('The two passwords do not match.'); return }
     setBusy(true)
-    const { error } = await supabase.auth.updateUser({ password: pw })
+    // In forced mode also clear the must_reset flag so the gate lifts.
+    const { error } = await supabase.auth.updateUser(
+      forced ? { password: pw, data: { must_reset: false } } : { password: pw })
     setBusy(false)
     if (error) { setErr(error.message); return }
     setDone(true)
@@ -53,7 +56,7 @@ export default function SetPassword({ onDone }: { onDone: () => void }) {
 
         {linkError && !ready && (
           <>
-            <p className="muted">This invite link is invalid or has expired. Ask the approver to send a new invite.</p>
+            <p className="muted">This invite link is invalid or has expired. Ask your admin to send a new invite.</p>
             <button className="btn" onClick={onDone}>Go to sign in</button>
           </>
         )}

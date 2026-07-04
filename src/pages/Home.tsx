@@ -43,7 +43,7 @@ export default function Home({ profile }: { profile: Profile }) {
   useEffect(() => { load() }, [])
 
   const newPO = () => {
-    if (profile.role === 'approver') {
+    if (profile.role === 'admin') {
       setErr(''); setNewPo({ po_no: '', customer_name: '', po_date: '', destination: '' })
       return
     }
@@ -95,7 +95,7 @@ export default function Home({ profile }: { profile: Profile }) {
                 {g.inspCount} wheel inspection(s) · {g.contCount} container loading(s)
               </div>
             </Link>
-            {profile.role === 'approver' && (
+            {profile.role === 'admin' && (
               <button className="btn danger" style={{ minHeight: 36, padding: '4px 10px', fontSize: 13 }} onClick={() => delPO(g)}>🗑</button>
             )}
           </div>

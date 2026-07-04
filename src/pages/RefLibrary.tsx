@@ -21,7 +21,7 @@ export default function RefLibrary({ profile }: { profile: Profile }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [inspPhotos, setInspPhotos] = useState<InspPhoto[]>([])
   const [preview, setPreview] = useState('')
-  const isApprover = profile.role === 'approver'
+  const isApprover = profile.role === 'admin'
 
   const load = async () => {
     const { data } = await supabase.from('photos').select('*').eq('is_reference', true).order('ref_category')

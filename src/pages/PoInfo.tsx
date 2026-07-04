@@ -4,10 +4,10 @@ import type { Profile } from '../App'
 import * as XLSX from 'xlsx'
 
 // PO master info + ordered items for the PO detail page (Phase 1).
-// - Info card: customer / date / destination, editable by approver.
+// - Info card: customer / date / destination, editable by admin.
 // - Items card: part numbers with ordered vs loaded vs remaining quantities.
 //   Loaded is computed from confirmed container-loading contents for this PO.
-// - Excel upload (approver): flexible header matching -> review screen -> save.
+// - Excel upload (admin): flexible header matching -> review screen -> save.
 
 interface PoRow { id: string; po_no: string; customer_name: string | null; po_date: string | null; destination: string | null }
 interface Item { id?: string; part_no: string; qty_ordered: number }
@@ -26,7 +26,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
   const [review, setReview] = useState<ReviewRow[] | null>(null)
   const [addItem, setAddItem] = useState<{ part_no: string; qty: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const isApprover = profile.role === 'approver'
+  const isApprover = profile.role === 'admin'
 
   const load = useCallback(async () => {
     setErr('')

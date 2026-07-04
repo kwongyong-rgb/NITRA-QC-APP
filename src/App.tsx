@@ -19,7 +19,7 @@ import ContainerLoading from './pages/ContainerLoading'
 import PoHub from './pages/PoHub'
 import ErrorBoundary from './components/ErrorBoundary'
 
-export interface Profile { id: string; full_name: string; role: 'inspector' | 'approver' }
+export interface Profile { id: string; full_name: string; role: 'inspector' | 'admin' | 'customer' }
 
 // Captured synchronously at module load: an invite / password-reset link arrives
 // with its one-time token in the URL hash (e.g. #...&type=invite). The Supabase
@@ -31,6 +31,7 @@ const initialLinkType = (() => {
 
 export default function App() {
   const [recoverMode, setRecoverMode] = useState(initialLinkType === 'invite' || initialLinkType === 'recovery')
+  const [mustReset, setMustReset] = useState(false)
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [menuOpen, setMenuOpen] = useState(false)
   const { lang, setLang, t } = useI18n()
@@ -44,7 +45,10 @@ export default function App() {
     if (isPublicReport) return
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { setProfile(null); return }
+      if (!session) { setProfile(null); setMustReset(false); return }
+      // Accounts created by an admin with a temporary password must choose
+      // their own password before using the app.
+      setMustReset(session.user.user_metadata?.must_reset === true)
       const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
       setProfile(data as Profile)
     }
@@ -80,6 +84,33 @@ export default function App() {
 
   if (profile === null) return <Login />
 
+  // Temp-password accounts must choose their own password before anything else.
+  if (mustReset) {
+    return <SetPassword forced onDone={() => { setMustReset(false); nav('/') }} />
+  }
+
+  // Customers get their own minimal space. The full customer dashboard ships
+  // in Phase 3 — until then they see a friendly holding page and nothing else.
+  if (profile.role === 'customer') {
+    return (
+      <>
+        <header className="topbar">
+          <img src="/logo-white.png" alt="NITRA" />
+          <span className="title">QC Inspection</span>
+          <nav className="topbar-nav open" style={{ marginLeft: 'auto' }}>
+            <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>Sign out</button>
+          </nav>
+        </header>
+        <div className="page">
+          <div className="card">
+            <h2 style={{ marginTop: 0 }}>Welcome, {profile.full_name}</h2>
+            <p className="muted">Your customer dashboard — assigned purchase orders, inspection status, and reports — is being prepared and will appear here soon. Your NITRA contact will share report links by email in the meantime.</p>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <header className="topbar">
@@ -87,11 +118,11 @@ export default function App() {
         <span className="title">{t('appTitle')}</span>
         <button className="topbar-burger" aria-label="Menu" onClick={() => setMenuOpen(o => !o)}>☰</button>
         <nav className={menuOpen ? 'topbar-nav open' : 'topbar-nav'} onClick={() => setMenuOpen(false)}>
-          {profile.role === 'approver' && (
+          {profile.role === 'admin' && (
             <>
               <Link to="/approvals"><button>{t('approvals')}</button></Link>
               <Link to="/skus"><button>{t('skus')}</button></Link>
-              <Link to="/team"><button>{t('team')}</button></Link>
+              <Link to="/users"><button>{t('users')}</button></Link>
               <Link to="/settings"><button>{t('settings')}</button></Link>
             </>
           )}
@@ -107,10 +138,11 @@ export default function App() {
           <Route path="/new" element={<NewInspection profile={profile} />} />
           <Route path="/inspection/:id" element={<Inspection profile={profile} />} />
           <Route path="/container/:id" element={<ContainerLoading profile={profile} />} />
-          <Route path="/approvals" element={profile.role === 'approver' ? <Approvals /> : <Navigate to="/" />} />
-          <Route path="/settings" element={profile.role === 'approver' ? <Settings /> : <Navigate to="/" />} />
-          <Route path="/skus" element={profile.role === 'approver' ? <Skus /> : <Navigate to="/" />} />
-          <Route path="/team" element={profile.role === 'approver' ? <TeamPage /> : <Navigate to="/" />} />
+          <Route path="/approvals" element={profile.role === 'admin' ? <Approvals /> : <Navigate to="/" />} />
+          <Route path="/settings" element={profile.role === 'admin' ? <Settings /> : <Navigate to="/" />} />
+          <Route path="/skus" element={profile.role === 'admin' ? <Skus /> : <Navigate to="/" />} />
+          <Route path="/users" element={profile.role === 'admin' ? <TeamPage /> : <Navigate to="/" />} />
+          <Route path="/team" element={<Navigate to="/users" />} />
           <Route path="/reference" element={<RefLibrary profile={profile} />} />
         </Routes>
       </ErrorBoundary>
