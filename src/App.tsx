@@ -13,6 +13,7 @@ import TeamPage from './pages/TeamPage'
 import SetPassword from './pages/SetPassword'
 import CustomerHome from './pages/CustomerHome'
 import MyWork from './pages/MyWork'
+import AdminDashboard from './pages/AdminDashboard'
 import RefLibrary from './pages/RefLibrary'
 import ReportPage from './pages/ReportPage'
 import PoReportPage from './pages/PoReportPage'
@@ -36,6 +37,8 @@ export default function App() {
   const [mustReset, setMustReset] = useState(false)
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [wide, setWide] = useState(window.innerWidth >= 900)
+  const [pendingCount, setPendingCount] = useState(0)
   const { lang, setLang, t } = useI18n()
   const nav = useNavigate()
   const location = useLocation()
@@ -60,6 +63,24 @@ export default function App() {
     })
     return () => sub.subscription.unsubscribe()
   }, [isPublicReport])
+
+  useEffect(() => {
+    const onR = () => setWide(window.innerWidth >= 900)
+    window.addEventListener('resize', onR)
+    return () => window.removeEventListener('resize', onR)
+  }, [])
+
+  // Sidebar badge: how many items await approval (admins, refreshed per navigation)
+  useEffect(() => {
+    if (profile?.role !== 'admin') return
+    ;(async () => {
+      const [a, b] = await Promise.all([
+        supabase.from('inspections').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
+        supabase.from('container_loadings').select('id', { count: 'exact', head: true }).eq('insp_status', 'submitted'),
+      ])
+      setPendingCount((a.count ?? 0) + (b.count ?? 0))
+    })()
+  }, [profile?.role, location.pathname])
 
   if (isPublicReport) {
     return (
@@ -99,6 +120,16 @@ export default function App() {
 
   const isWorkScreen = location.pathname.startsWith('/inspection/') || location.pathname.startsWith('/container/')
   const showBottomNav = profile.role === 'inspector' && !isWorkScreen
+  const showSidebar = profile.role === 'admin' && wide
+  const SIDEBAR_ITEMS = [
+    { to: '/dashboard', label: 'Dashboard', icon: '🏠' },
+    { to: '/', label: 'POs', icon: '📋' },
+    { to: '/approvals', label: 'Approvals', icon: '✅', badge: pendingCount },
+    { to: '/users', label: 'Users', icon: '👥' },
+    { to: '/skus', label: 'SKUs', icon: '🛞' },
+    { to: '/reference', label: 'Reference', icon: '🖼' },
+    { to: '/settings', label: 'Settings', icon: '⚙️' },
+  ]
 
   return (
     <>
@@ -107,7 +138,7 @@ export default function App() {
         <span className="title">{t('appTitle')}</span>
         <button className="topbar-burger" aria-label="Menu" onClick={() => setMenuOpen(o => !o)}>☰</button>
         <nav className={menuOpen ? 'topbar-nav open' : 'topbar-nav'} onClick={() => setMenuOpen(false)}>
-          {profile.role === 'admin' && (
+          {profile.role === 'admin' && !showSidebar && (
             <>
               <Link to="/approvals"><button>{t('approvals')}</button></Link>
               <Link to="/skus"><button>{t('skus')}</button></Link>
@@ -115,11 +146,35 @@ export default function App() {
               <Link to="/settings"><button>{t('settings')}</button></Link>
             </>
           )}
-          <Link to="/reference"><button>{t('refLibrary')}</button></Link>
+          {!showSidebar && <Link to="/reference"><button>{t('refLibrary')}</button></Link>}
           <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '中文' : 'EN'}</button>
           <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>{t('signOut')}</button>
         </nav>
       </header>
+      <div style={showSidebar ? { display: 'flex', alignItems: 'flex-start' } : undefined}>
+      {showSidebar && (
+        <aside style={{ width: 216, flexShrink: 0, position: 'sticky', top: 0,
+          height: 'calc(100vh - 56px)', background: '#fff', borderRight: '1.5px solid var(--line)',
+          padding: '14px 10px' }}>
+          {SIDEBAR_ITEMS.map(it => {
+            const active = it.to === '/' ? (location.pathname === '/' || location.pathname.startsWith('/po/')) : location.pathname.startsWith(it.to)
+            return (
+              <Link key={it.to} to={it.to} style={{ textDecoration: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px',
+                  borderRadius: 10, marginBottom: 4, fontWeight: 700, fontSize: 14,
+                  background: active ? 'var(--navy)' : 'transparent',
+                  color: active ? '#fff' : 'var(--navy)' }}>
+                  <span>{it.icon}</span>
+                  <span style={{ flex: 1 }}>{it.label}</span>
+                  {!!it.badge && <span style={{ background: active ? '#fff' : 'var(--amber, #B7791F)', color: active ? 'var(--navy)' : '#fff',
+                    borderRadius: 12, fontSize: 12, fontWeight: 800, padding: '1px 8px' }}>{it.badge}</span>}
+                </div>
+              </Link>
+            )
+          })}
+        </aside>
+      )}
+      <div style={showSidebar ? { flex: 1, minWidth: 0 } : undefined}>
       <ErrorBoundary>
         <Routes>
           <Route path="/" element={<Home profile={profile} />} />
@@ -134,8 +189,11 @@ export default function App() {
           <Route path="/team" element={<Navigate to="/users" />} />
           <Route path="/reference" element={<RefLibrary profile={profile} />} />
           <Route path="/mywork" element={<MyWork profile={profile} />} />
+          <Route path="/dashboard" element={profile.role === 'admin' ? <AdminDashboard /> : <Navigate to="/" />} />
         </Routes>
       </ErrorBoundary>
+      </div>
+      </div>
       {showBottomNav && (
         <>
           <div style={{ height: 64 }} />

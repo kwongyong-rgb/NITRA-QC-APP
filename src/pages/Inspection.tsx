@@ -411,6 +411,33 @@ export default function Inspection({ profile }: { profile: Profile }) {
     }
   }
 
+  // ---- B2: per-step completion states for the stepper header ----
+  type StepState = 'done' | 'partial' | 'empty'
+  const stepState = (k: typeof TABS[number]): StepState => {
+    if (!insp) return 'empty'
+    if (k === 'form') {
+      const total = insp.app_sample * formKeys.length
+      let done = 0
+      for (let pc = 1; pc <= insp.app_sample; pc++) done += formKeys.filter(key => formAnswered(key, pc)).length
+      return done === 0 ? 'empty' : done >= total ? 'done' : 'partial'
+    }
+    if (k === 'measure') {
+      const total = insp.fun_sample * measKeys.length
+      let done = 0
+      for (let pc = 1; pc <= insp.fun_sample; pc++) done += measKeys.filter(key => measAnswered(key, pc)).length
+      return done === 0 ? 'empty' : done >= total ? 'done' : 'partial'
+    }
+    if (k === 'photos') return photos.length > 0 ? 'done' : 'empty'
+    if (k === '100pct') {
+      // Only meaningful when triggered; treated as partial until the trigger clears.
+      return triggeredItems.length > 0 ? 'partial' : 'done'
+    }
+    // summary: complete once a decision is chosen
+    const d = insp.summary.disposition
+    return d && (d !== 'custom' || (insp.summary.disposition_custom || '').trim()) ? 'done' : 'empty'
+  }
+  const stepGlyph = (st: StepState) => st === 'done' ? '✓' : st === 'partial' ? '●' : '○'
+
   const setResult = async (itemKey: string, itemLabel: string, pieceNo: number, val: PFNA, isMeas: boolean) => {
     if (!insp) return
     if (autoNaItems.has(itemKey)) return  // blocked — auto-NA
@@ -820,15 +847,18 @@ export default function Inspection({ profile }: { profile: Profile }) {
           </div>
         ))}
 
-      {/* Tabs */}
+      {/* B2: Stepper — ordered steps with live completion states */}
       <div className="tabs">
-        {TABS.filter(k => k!=='100pct'||triggeredItems.length>0).map(k => {
+        {TABS.filter(k => k!=='100pct'||triggeredItems.length>0).map((k, idx) => {
           const label = k==='form'?t('tabVisual'):k==='measure'?t('tabTechnical'):k==='photos'?`${t('tabPhotos')} (${photos.length})`:k==='100pct'?t('tab100pct'):t('tabSummary')
-          const icon = k==='form'?'👁':k==='measure'?'📏':k==='photos'?'📷':k==='100pct'?'⛔':'📋'
+          const st = stepState(k)
+          const glyphColor = st === 'done' ? 'var(--pass, #1F8A4C)' : st === 'partial' ? 'var(--amber, #B7791F)' : 'var(--ink-soft, #8A97A6)'
           return (
             <button key={k} className={`${tab===k?'on':''}${k==='100pct'?' crit':''}`} onClick={() => setTab(k)}>
-              <span className="tab-ico" aria-hidden="true">{icon}</span>
-              <span className="tab-txt">{label}</span>
+              <span className="tab-ico" aria-hidden="true" style={{ color: tab===k ? undefined : glyphColor, fontWeight: 800 }}>
+                {k==='100pct' ? '⛔' : stepGlyph(st)}
+              </span>
+              <span className="tab-txt">{idx + 1}. {label}</span>
             </button>
           )
         })}
