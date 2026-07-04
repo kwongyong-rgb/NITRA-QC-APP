@@ -372,6 +372,45 @@ export default function Inspection({ profile }: { profile: Profile }) {
     return new Set(SECTIONS.flatMap(s => s.items).filter(i => i.glossBlackOnly).map(i => i.key))
   }, [sku])
 
+  // ---- Sticky progress bar (QW-2) ----
+  const formKeys = useMemo(() => SECTIONS.flatMap(sc => sc.items.map(i => i.key)), [])
+  const measKeys = useMemo(() => MEAS_SECTIONS.flatMap(mc => mc.cols.map(c => c.key)), [])
+  const formAnswered = (key: string, pc: number) =>
+    autoNaItems.has(key) || !!naOverrides[key] || insp?.form_data.results[`${key}:${pc}`] !== undefined
+  const measAnswered = (key: string, pc: number) =>
+    !!naOverrides[key] || insp?.form_data.meas_results?.[`${key}:${pc}`] !== undefined
+  const progress = useMemo(() => {
+    if (!insp) return null
+    if (tab === 'form') {
+      const done = formKeys.filter(k => formAnswered(k, piece)).length
+      const piecesDone = Array.from({ length: insp.app_sample }, (_, i) => i + 1)
+        .filter(pc => formKeys.every(k => formAnswered(k, pc))).length
+      return { done, total: formKeys.length, piecesDone, pieces: insp.app_sample }
+    }
+    if (tab === 'measure') {
+      const done = measKeys.filter(k => measAnswered(k, piece)).length
+      const piecesDone = Array.from({ length: insp.fun_sample }, (_, i) => i + 1)
+        .filter(pc => measKeys.every(k => measAnswered(k, pc))).length
+      return { done, total: measKeys.length, piecesDone, pieces: insp.fun_sample }
+    }
+    return null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insp, tab, piece, autoNaItems, naOverrides])
+  const jumpNextUnanswered = () => {
+    if (!insp) return
+    if (tab === 'form') {
+      const k = formKeys.find(key => !formAnswered(key, piece))
+      if (k) { document.getElementById(`row-form-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return }
+      const nextPc = Array.from({ length: insp.app_sample }, (_, i) => i + 1).find(pc => pc !== piece && !formKeys.every(key => formAnswered(key, pc)))
+      if (nextPc) { setPiece(nextPc); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+    } else if (tab === 'measure') {
+      const k = measKeys.find(key => !measAnswered(key, piece))
+      if (k) { document.getElementById(`row-meas-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return }
+      const nextPc = Array.from({ length: insp.fun_sample }, (_, i) => i + 1).find(pc => pc !== piece && !measKeys.every(key => measAnswered(key, pc)))
+      if (nextPc) { setPiece(nextPc); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+    }
+  }
+
   const setResult = async (itemKey: string, itemLabel: string, pieceNo: number, val: PFNA, isMeas: boolean) => {
     if (!insp) return
     if (autoNaItems.has(itemKey)) return  // blocked — auto-NA
@@ -679,7 +718,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   if (!insp || !sku) return <div className="page" style={{ textAlign:'center', paddingTop:40 }}>Loading…</div>
 
   return (
-    <div className="page">
+    <div className="page" style={{ paddingBottom: inspectorEditable ? 84 : undefined }}>
       <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, marginBottom:12 }} onClick={() => nav(-1)}>← Back</button>
       {/* Header */}
       <div className="card">
@@ -821,7 +860,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
                   // For TPMS show the dimension from SKU
                   const subtext = item.key==='tpms_hole' && sku.tpms_sensor_mm ? `Dimension: ${sku.tpms_sensor_mm} mm` : null
                   return (
-                    <div key={item.key} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)', opacity: (autoNaItems.has(item.key)||naOverrides[item.key]) ? 0.6 : 1 }}>
+                    <div key={item.key} id={`row-form-${item.key}`} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)', opacity: (autoNaItems.has(item.key)||naOverrides[item.key]) ? 0.6 : 1 }}>
                       <div className="row" style={{ gap:8 }}>
                         <div style={{ flex:1 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
@@ -868,7 +907,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
                   const val: PFNA = naOverrides[col.key] ? 'NA' : rawVal
                   const nom = col.nominal(sku)
                   return (
-                    <div key={col.key} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)', opacity:naOverrides[col.key]?0.6:1 }}>
+                    <div key={col.key} id={`row-meas-${col.key}`} style={{ padding:'11px 0', borderBottom:'1px solid var(--line)', opacity:naOverrides[col.key]?0.6:1 }}>
                       <div className="row" style={{ gap:8 }}>
                         <div style={{ flex:1 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
@@ -1195,6 +1234,24 @@ export default function Inspection({ profile }: { profile: Profile }) {
       )}
       {emailOpen && <EmailModal title="Email inspection report" allowBlank sending={emailBusy}
         onSend={doEmailReport} onClose={() => setEmailOpen(false)} />}
+      {inspectorEditable && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30,
+          background: '#fff', borderTop: '1.5px solid var(--line)',
+          padding: '10px 14px calc(10px + env(safe-area-inset-bottom))',
+          display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+            {progress
+              ? <><b>{tab === 'form' ? t('tabVisual') : t('tabTechnical')}</b> · {t('piece')} {piece}: <b>{progress.done}/{progress.total}</b>
+                  <span className="muted"> · {progress.piecesDone}/{progress.pieces} ✓</span></>
+              : <span className="muted">{insp.status === 'rejected' ? '↩ Returned — fix and resubmit' : 'Draft'}</span>}
+          </div>
+          {progress && progress.done < progress.total &&
+            <button className="btn ghost" style={{ minHeight: 44, padding: '4px 12px', fontSize: 13, whiteSpace: 'nowrap' }} onClick={jumpNextUnanswered}>Next ↓</button>}
+          {progress && progress.done === progress.total && progress.piecesDone < progress.pieces &&
+            <button className="btn ghost" style={{ minHeight: 44, padding: '4px 12px', fontSize: 13, whiteSpace: 'nowrap' }} onClick={jumpNextUnanswered}>Next piece →</button>}
+          <button className="btn" style={{ minHeight: 44, padding: '4px 16px', whiteSpace: 'nowrap' }} onClick={submit}>{t('submit')}</button>
+        </div>
+      )}
     </div>
   )
 }

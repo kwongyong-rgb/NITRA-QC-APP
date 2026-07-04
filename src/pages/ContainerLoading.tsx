@@ -72,6 +72,17 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     setPoQty(new Map(list.map(i => [i.part_no, i.qty_ordered])))
   }
 
+  // ---- Sticky progress bar (QW-2) ----
+  const checksDone = (n: number) => PALLET_PACKING_ITEMS.filter(it => palletOf(n).checks[it.key] !== undefined).length
+  const palletComplete = (n: number) => checksDone(n) === PALLET_PACKING_ITEMS.length
+  const jumpNextCheck = () => {
+    const missing = PALLET_PACKING_ITEMS.find(it => palletOf(activePallet).checks[it.key] === undefined)
+    if (missing) { document.getElementById(`chk-${missing.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return }
+    const count = cl?.data.pallet_count ?? 0
+    const next = Array.from({ length: count }, (_, i) => i + 1).find(pn => pn !== activePallet && !palletComplete(pn))
+    if (next) { setActivePallet(next); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  }
+
   useEffect(() => {
     (async () => {
       const { data: skus } = await supabase.from('skus').select('part_no').eq('active', true).order('part_no')
@@ -300,7 +311,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const openPdf = () => openContainerReport(cl.id)
 
   return (
-    <div className="page" style={{ paddingTop: 16 }}>
+    <div className="page" style={{ paddingTop: 16, paddingBottom: editable ? 84 : undefined }}>
       <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav(-1)}>← Back</button>
 
       {(profile.role === 'admin' || cl.insp_status === 'approved') && (
@@ -480,7 +491,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
                     </>}
                   </div>
                   {PALLET_PACKING_ITEMS.map(item => (
-                    <div key={item.key} style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                    <div key={item.key} id={`chk-${item.key}`} style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
                       <div className="row" style={{ gap: 10 }}>
                         <span style={{ flex: 1, fontSize: 14 }}>{bi(item.label)}</span>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -601,6 +612,23 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
       {emailOpen && <EmailModal title="Email container report" allowBlank sending={emailBusy}
         onSend={doEmail} onClose={() => setEmailOpen(false)} />}
+      {editable && ['draft', 'rejected'].includes(cl.insp_status) && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30,
+          background: '#fff', borderTop: '1.5px solid var(--line)',
+          padding: '10px 14px calc(10px + env(safe-area-inset-bottom))',
+          display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+            {(cl.data.loading_type || 'pallet') === 'pallet' && (cl.data.pallet_count ?? 0) > 0
+              ? <><b>Pallet {activePallet}</b>: {checksDone(activePallet)}/{PALLET_PACKING_ITEMS.length} checks
+                  <span className="muted"> · {Array.from({ length: cl.data.pallet_count ?? 0 }, (_, i) => i + 1).filter(palletComplete).length}/{cl.data.pallet_count} pallets ✓</span></>
+              : <span className="muted">Container loading</span>}
+          </div>
+          {(cl.data.loading_type || 'pallet') === 'pallet' && (cl.data.pallet_count ?? 0) > 0 &&
+            !Array.from({ length: cl.data.pallet_count ?? 0 }, (_, i) => i + 1).every(palletComplete) &&
+            <button className="btn ghost" style={{ minHeight: 44, padding: '4px 12px', fontSize: 13, whiteSpace: 'nowrap' }} onClick={jumpNextCheck}>Next ↓</button>}
+          <button className="btn" style={{ minHeight: 44, padding: '4px 16px', whiteSpace: 'nowrap' }} onClick={submit}>Submit</button>
+        </div>
+      )}
     </div>
   )
 }

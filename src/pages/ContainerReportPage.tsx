@@ -10,7 +10,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     details: 'Shipping & Container Details', po: 'PO No.', container: 'Container No.', seal: 'Seal No.', bl: 'BL Number',
     loadingType: 'Loading Type', pallets: 'Pallets', dateLoaded: 'Date Loaded', etd: 'Est. Port Departure',
     eta: 'Est. Port Arrival', depPort: 'Departure Port', destPort: 'Destination Port', inspector: 'Inspector',
-    approver: 'Approved By', contents: 'Loaded Contents', packing: 'Pallet Packing Inspection', pallet: 'Pallet',
+    approver: 'Approved By', notOnPo: 'NOT ON PO', contents: 'Loaded Contents', packing: 'Pallet Packing Inspection', pallet: 'Pallet',
     photos: 'Photo / Video Appendix', pass: 'Pass', fail: 'Fail', na: 'N/A',
     partNumber: 'Part Number', model: 'Model', size: 'Size', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Color', qty: 'Qty Loaded',
     statusLoaded: 'LOADED', statusInProgress: 'IN PROGRESS', statusHold: 'HOLD', statusUnset: 'IN PROGRESS', statusTag: 'CONTAINER STATUS',
@@ -22,7 +22,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     details: 'Versand- & Containerdetails', po: 'Bestell-Nr.', container: 'Container-Nr.', seal: 'Siegel-Nr.', bl: 'BL-Nummer',
     loadingType: 'Verladeart', pallets: 'Paletten', dateLoaded: 'Verladedatum', etd: 'Vorauss. Hafenabfahrt',
     eta: 'Vorauss. Hafenankunft', depPort: 'Abfahrtshafen', destPort: 'Zielhafen', inspector: 'Prüfer',
-    approver: 'Genehmigt von', contents: 'Geladener Inhalt', packing: 'Palettenverpackungsprüfung', pallet: 'Palette',
+    approver: 'Genehmigt von', notOnPo: 'NICHT AUF BESTELLUNG', contents: 'Geladener Inhalt', packing: 'Palettenverpackungsprüfung', pallet: 'Palette',
     photos: 'Foto- / Video-Anhang', pass: 'i.O.', fail: 'n.i.O.', na: 'k.A.',
     partNumber: 'Teilenummer', model: 'Modell', size: 'Größe', pcd: 'PCD', cb: 'CB', et: 'ET', color: 'Farbe', qty: 'Geladene Menge',
     statusLoaded: 'GELADEN', statusInProgress: 'IN BEARBEITUNG', statusHold: 'ZURÜCKGEHALTEN', statusTag: 'CONTAINERSTATUS',
@@ -34,7 +34,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     details: '运输与集装箱信息', po: '订单号', container: '集装箱号', seal: '封条号', bl: '提单号',
     loadingType: '装柜方式', pallets: '托盘数', dateLoaded: '装柜日期', etd: '预计离港',
     eta: '预计到港', depPort: '起运港', destPort: '目的港', inspector: '检验员',
-    approver: '批准人', contents: '装载内容', packing: '托盘包装检验', pallet: '托盘',
+    approver: '批准人', notOnPo: '不在订单内', contents: '装载内容', packing: '托盘包装检验', pallet: '托盘',
     photos: '照片 / 视频附录', pass: '合格', fail: '不合格', na: '不适用',
     partNumber: '产品编号', model: '型号', size: '尺寸', pcd: 'PCD', cb: 'CB', et: 'ET', color: '颜色', qty: '装载数量',
     statusLoaded: '已装柜', statusInProgress: '进行中', statusHold: '暂扣', statusTag: '集装箱状态',
@@ -131,7 +131,7 @@ export default function ContainerReportPage() {
                     const r = typeof raw === 'string' ? { part_no: raw, model: '', size: '', pcd: '', cb: '', et: '', color: '', qty: '' } : raw
                     return (
                       <tr key={i}>
-                        <Td>{r.part_no}</Td><Td2>{r.model || '—'}</Td2><Td2>{r.size || '—'}</Td2><Td2>{r.pcd || '—'}</Td2>
+                        <Td>{r.part_no}{r.off_po && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: '#B7791F', border: '1px solid #B7791F', borderRadius: 5, padding: '1px 5px', whiteSpace: 'nowrap' }}>⚠ {L.notOnPo}</span>}</Td><Td2>{r.model || '—'}</Td2><Td2>{r.size || '—'}</Td2><Td2>{r.pcd || '—'}</Td2>
                         <Td2>{r.cb !== '' && r.cb != null ? r.cb : '—'}</Td2><Td2>{r.et || '—'}</Td2><Td2>{r.color || '—'}</Td2>
                         <Td2 b>{r.qty}</Td2>
                       </tr>

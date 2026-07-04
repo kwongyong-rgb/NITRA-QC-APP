@@ -50,11 +50,12 @@ Deno.serve(async (req) => {
 
     // loaded contents → aggregate qty by part no, enrich with SKU details
     const qtyByPart: Record<string, number> = {}
-    const addQty = (pn: string, q: any) => { if (!pn) return; qtyByPart[pn] = (qtyByPart[pn] || 0) + (Number(q) || 0) }
+    const offPoParts = new Set<string>()
+    const addQty = (pn: string, q: any, offPo?: boolean) => { if (!pn) return; qtyByPart[pn] = (qtyByPart[pn] || 0) + (Number(q) || 0); if (offPo) offPoParts.add(pn) }
     if (type === 'pallet') {
-      for (const pd of Object.values(d.pallets || {})) for (const c of ((pd as any).contents || [])) addQty(c.part_no, c.qty)
+      for (const pd of Object.values(d.pallets || {})) for (const c of ((pd as any).contents || [])) addQty(c.part_no, c.qty, c.off_po)
     } else {
-      for (const c of (d.non_pallet_contents || [])) addQty(c.part_no, c.qty)
+      for (const c of (d.non_pallet_contents || [])) addQty(c.part_no, c.qty, c.off_po)
     }
     const partNos = Object.keys(qtyByPart)
     const norm = (x: string) => (x || '').trim().toUpperCase()
@@ -70,13 +71,13 @@ Deno.serve(async (req) => {
     }
     const contents = partNos.sort().map((pn) => {
       const exact = byPart[norm(pn)]
-      if (exact) return { part_no: pn, model: exact.model || '', size: exact.size || '', pcd: exact.pcd || '', cb: exact.cb_mm ?? '', et: exact.offset_txt || '', color: exact.finish || '', qty: qtyByPart[pn] }
+      if (exact) return { part_no: pn, model: exact.model || '', size: exact.size || '', pcd: exact.pcd || '', cb: exact.cb_mm ?? '', et: exact.offset_txt || '', color: exact.finish || '', qty: qtyByPart[pn], off_po: offPoParts.has(pn) || undefined }
       // fall back to the base model (first token) so physical specs still fill in even
       // when this specific finish variant isn't registered in the SKU master
       const token = pn.split(/\s+/)[0]
       const m = byModel[norm(token)]
-      if (m) return { part_no: pn, model: m.model || token, size: m.size || '', pcd: m.pcd || '', cb: m.cb_mm ?? '', et: parseEt(pn) || m.offset_txt || '', color: '', qty: qtyByPart[pn] }
-      return { part_no: pn, model: '', size: '', pcd: '', cb: '', et: parseEt(pn), color: '', qty: qtyByPart[pn] }
+      if (m) return { part_no: pn, model: m.model || token, size: m.size || '', pcd: m.pcd || '', cb: m.cb_mm ?? '', et: parseEt(pn) || m.offset_txt || '', color: '', qty: qtyByPart[pn], off_po: offPoParts.has(pn) || undefined }
+      return { part_no: pn, model: '', size: '', pcd: '', cb: '', et: parseEt(pn), color: '', qty: qtyByPart[pn], off_po: offPoParts.has(pn) || undefined }
     })
 
     // per-pallet packing checks

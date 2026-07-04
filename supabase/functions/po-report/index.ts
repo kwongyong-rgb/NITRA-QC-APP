@@ -59,10 +59,10 @@ Deno.serve(async (req) => {
       const contents: string[] = []
       if (type === 'pallet') {
         for (const [n, pd] of Object.entries(d.pallets || {})) {
-          for (const ct of ((pd as any).contents || [])) if (ct.part_no) contents.push(`Pallet ${n}: ${ct.part_no} × ${ct.qty}`)
+          for (const ct of ((pd as any).contents || [])) if (ct.part_no) contents.push(`Pallet ${n}: ${ct.part_no}${ct.off_po ? ' ⚠NOT ON PO' : ''} × ${ct.qty}`)
         }
       } else {
-        for (const ct of (d.non_pallet_contents || [])) if (ct.part_no) contents.push(`${ct.part_no} × ${ct.qty}`)
+        for (const ct of (d.non_pallet_contents || [])) if (ct.part_no) contents.push(`${ct.part_no}${ct.off_po ? ' ⚠NOT ON PO' : ''} × ${ct.qty}`)
       }
       // pallet checks roll-up
       let checkPass = 0, checkFail = 0
