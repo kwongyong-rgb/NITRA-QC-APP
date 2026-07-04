@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../App'
+import PoInfo from './PoInfo'
 
 interface Insp { id: string; part_no: string; status: string; updated_at: string; inspector_id: string }
 interface Cont { id: string; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string }
@@ -68,6 +69,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
     const { error: e1 } = await supabase.from('inspections').delete().eq('po_no', po)
     const { error: e2 } = await supabase.from('container_loadings').delete().eq('po_no', po)
     if (e1 || e2) { alert('Delete failed: ' + (e1?.message || e2?.message)); return }
+    await supabase.from('pos').delete().eq('po_no', po) // master row + items (cascade)
     nav('/')
   }
 
@@ -81,6 +83,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
         {profile.role === 'approver' && (insps.length > 0 || conts.length > 0) &&
           <button className="btn danger" style={{ minHeight: 36, padding: '6px 12px', fontSize: 13, marginTop: 8 }} onClick={delPO}>🗑 Delete entire PO</button>}
       </div>
+
+      <PoInfo po={po} profile={profile} refreshKey={insps.length + conts.length} />
 
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
