@@ -52,13 +52,13 @@ const DISPOSITION_CLS: Record<string, string> = {
 const DICT: Record<Lang, Record<string, string>> = {
   en: {
     title: 'QC Interactive Report', subtitle: 'Live report · clickable photo & video evidence',
-    viewed: 'Viewed', finalDisposition: 'FINAL DECISION', pendingDisposition: 'DECISION PENDING',
+    viewed: 'Viewed', finalDisposition: 'DISPOSITION', pendingDisposition: 'PENDING DISPOSITION',
     inspectionReport: 'Inspection Report',
     partNo: 'Part No. / SKU', finish: 'Finish', modelSize: 'Model / Size', pcdEtCb: 'PCD · ET · CB',
     poNo: 'PO No.', batch: 'Batch', lotSize: 'Lot Size', samples: 'Samples', inspector: 'Inspector',
     submitted: 'Submitted', approvedBy: 'Approved By', approvedOn: 'Approved On',
     pcs: 'pcs', visualWord: 'Visual', technicalWord: 'Technical',
-    findings: 'Inspection Findings', corrective: 'Corrective Action / Disposition',
+    findings: 'Inspection Findings', corrective: 'Action Taken',
     criteria: 'Inspection Evaluation Criteria',
     sampleSize: 'Sample size', onePieceFails: '1 piece fails', sameDefectAgain: 'Same defect fails again',
     twoPlusFail: '2+ fail in initial sample', pct100: '100% inspection', immediately: 'immediately',
@@ -120,13 +120,13 @@ const DICT: Record<Lang, Record<string, string>> = {
   },
   zh: {
     title: 'QC 互动报告', subtitle: '实时报告 · 可点击的照片和视频证据',
-    viewed: '查看时间', finalDisposition: '最终决定', pendingDisposition: '决定待定',
+    viewed: '查看时间', finalDisposition: '处置', pendingDisposition: '待定处置',
     inspectionReport: '检验报告',
     partNo: '零件号 / SKU', finish: '表面处理', modelSize: '型号 / 尺寸', pcdEtCb: 'PCD · ET · CB',
     poNo: '采购订单号', batch: '批次', lotSize: '批量', samples: '抽样', inspector: '检验员',
     submitted: '提交时间', approvedBy: '审批人', approvedOn: '审批时间',
     pcs: '件', visualWord: '外观', technicalWord: '技术',
-    findings: '检验发现', corrective: '纠正措施 / 处置',
+    findings: '检验发现', corrective: '处置措施',
     criteria: '检验评估标准',
     sampleSize: '抽样数量', onePieceFails: '1 件不合格', sameDefectAgain: '同一缺陷再次出现',
     twoPlusFail: '初始样本中 2 件及以上不合格', pct100: '全检 (100%)', immediately: '（立即）',
@@ -455,6 +455,16 @@ export default function ReportPage() {
             : <img src={lightbox.url} style={{ maxWidth: '96vw', maxHeight: '90vh', borderRadius: 10 }} onClick={e => e.stopPropagation()} />}
         </div>
       )}
+
+      <div style={{ background: bannerBg, borderTop: `3px solid ${bannerColor}`, borderBottom: `3px solid ${bannerColor}` }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 999, background: bannerColor, flexShrink: 0 }} />
+            <span style={{ color: bannerColor, fontWeight: 800, fontSize: 15, lineHeight: 1.25 }}>{dispText}</span>
+          </div>
+          <span style={{ color: bannerColor, opacity: .6, fontWeight: 700, fontSize: 10.5, letterSpacing: 1.4, whiteSpace: 'nowrap' }}>{L.finalDisposition}</span>
+        </div>
+      </div>
 
       <div style={{ padding: '10px 24px', color: '#9AA7B5', fontSize: 10, letterSpacing: 2, textAlign: 'center' }}>{L.confidential}</div>
     </div>

@@ -13,7 +13,7 @@ const DICT: Record<CLang, Record<string, string>> = {
   en: {
     myPos: 'My Purchase Orders', greeting: 'Welcome', signOut: 'Sign out',
     po: 'PO Number', date: 'PO Date', dest: 'Destination', skus: 'SKUs',
-    status: 'Inspection Status', disp: 'Final Decision', report: 'Report',
+    status: 'Inspection Status', disp: 'Disposition', report: 'Report',
     open: 'Open report', copy: 'Copy link', copied: 'Link copied', none: 'No purchase orders have been assigned to your account yet. Please contact your NITRA representative.',
     pending: 'Pending Inspection', inprog: 'Inspection In Progress', approved: 'Approved',
     loading: 'Loading…',
@@ -21,7 +21,7 @@ const DICT: Record<CLang, Record<string, string>> = {
   de: {
     myPos: 'Meine Bestellungen', greeting: 'Willkommen', signOut: 'Abmelden',
     po: 'Bestellnummer', date: 'Bestelldatum', dest: 'Zielort', skus: 'SKUs',
-    status: 'Prüfstatus', disp: 'Endgültige Entscheidung', report: 'Bericht',
+    status: 'Prüfstatus', disp: 'Disposition', report: 'Bericht',
     open: 'Bericht öffnen', copy: 'Link kopieren', copied: 'Link kopiert', none: 'Ihrem Konto wurden noch keine Bestellungen zugewiesen. Bitte kontaktieren Sie Ihren NITRA-Ansprechpartner.',
     pending: 'Prüfung ausstehend', inprog: 'Prüfung läuft', approved: 'Freigegeben',
     loading: 'Wird geladen…',
@@ -29,7 +29,7 @@ const DICT: Record<CLang, Record<string, string>> = {
   fr: {
     myPos: 'Mes bons de commande', greeting: 'Bienvenue', signOut: 'Se déconnecter',
     po: 'Nº de commande', date: 'Date de commande', dest: 'Destination', skus: 'SKU',
-    status: 'État de l’inspection', disp: 'Décision finale', report: 'Rapport',
+    status: 'État de l’inspection', disp: 'Disposition', report: 'Rapport',
     open: 'Ouvrir le rapport', copy: 'Copier le lien', copied: 'Lien copié', none: 'Aucun bon de commande n’a encore été attribué à votre compte. Veuillez contacter votre représentant NITRA.',
     pending: 'Inspection à venir', inprog: 'Inspection en cours', approved: 'Approuvé',
     loading: 'Chargement…',
