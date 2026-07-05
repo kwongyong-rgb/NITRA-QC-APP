@@ -8,6 +8,7 @@ import { openContainerReport } from '../lib/report'
 import type { Profile } from '../App'
 import PartPicker from '../components/PartPicker'
 import EmailModal from '../components/EmailModal'
+import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
 
 type PFNA = 'P' | 'F' | 'NA' | undefined
 interface Content { part_no: string; qty: number; off_po?: boolean }
@@ -25,7 +26,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const { id } = useParams()
   const nav = useNavigate()
   const [params] = useSearchParams()
-  const { bi } = useI18n()
+  const { bi, t } = useI18n()
   const [cl, setCl] = useState<CL | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
@@ -42,6 +43,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
   const [err, setErr] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
   const [photoModal, setPhotoModal] = useState<{ type: 'reassign' | 'copy'; photo: Photo } | null>(null)
+  const [restore, setRestore] = useState<{ data?: unknown; container_no?: unknown; seal_no?: unknown; status?: unknown; summary?: unknown } | null>(null)
 
   useEffect(() => {
     const path = cl?.report_logo_path
@@ -97,11 +99,43 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
       }
       const { data, error } = await supabase.from('container_loadings').select('*').eq('id', id).single()
       if (error) { setErr(error.message); return }
+      const draft = await getLocalDraft('container', id!)
       setCl(data as CL)
       await loadPhotos(id!)
       loadPoItems((data as CL).po_no)
+      if (draft) {
+        const c = data as CL
+        const serverContent = JSON.stringify({ data: c.data, container_no: c.container_no, seal_no: c.seal_no, status: c.status, summary: c.summary })
+        if (JSON.stringify(draft.data) !== serverContent) setRestore(draft.data as { data?: unknown; container_no?: unknown; seal_no?: unknown; status?: unknown; summary?: unknown })
+        else await clearLocalDraft('container', id!)
+      }
     })()
   }, [id, profile.id, nav, loadPhotos])
+
+  // B6 Stage 1 — mirror the open container loading to this device on every change.
+  useEffect(() => {
+    if (!cl?.id) return
+    saveLocalDraft('container', cl.id, { data: cl.data, container_no: cl.container_no, seal_no: cl.seal_no, status: cl.status, summary: cl.summary }, (cl as { updated_at?: string }).updated_at ?? null)
+  }, [cl])
+
+  const applyRestore = async () => {
+    if (!cl || !restore) return
+    const r = restore
+    const next = {
+      ...cl,
+      data: (r.data as CL['data']) ?? cl.data,
+      container_no: (r.container_no as string) ?? cl.container_no,
+      seal_no: (r.seal_no as string) ?? cl.seal_no,
+      status: (r.status as string) ?? cl.status,
+      summary: (r.summary as CL['summary']) ?? cl.summary,
+    }
+    setCl(next)
+    setRestore(null)
+    try {
+      await supabase.from('container_loadings').update({ data: next.data, container_no: next.container_no, seal_no: next.seal_no, status: next.status, summary: next.summary, updated_at: new Date().toISOString() }).eq('id', cl.id)
+    } catch { /* remains in the local draft until the next successful save */ }
+  }
+  const discardRestore = async () => { if (cl) await clearLocalDraft('container', cl.id); setRestore(null) }
 
   if (err) return <div className="page" style={{ paddingTop: 24 }}><p style={{ color: 'var(--fail)' }}>Error: {err}</p></div>
   if (!cl) return <div className="page" style={{ paddingTop: 24 }}><p className="muted">Loading…</p></div>
@@ -260,6 +294,7 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
     }
     await patch({ insp_status: 'submitted' })
     await supabase.from('container_loadings').update({ submitted_at: new Date().toISOString(), inspector_id: profile.id }).eq('id', cl.id)
+    await clearLocalDraft('container', cl.id)
     alert('Submitted for approval.')
   }
 
@@ -312,6 +347,16 @@ export default function ContainerLoading({ profile }: { profile: Profile }) {
 
   return (
     <div className="page" style={{ paddingTop: 16, paddingBottom: editable ? 84 : undefined }}>
+      {restore && (
+        <div className="card" style={{ borderColor: 'var(--amber)', background: 'var(--amber-bg)', marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('restoreTitle')}</div>
+          <div style={{ fontSize: 13, marginBottom: 10 }}>{t('restoreBody')}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn" onClick={applyRestore}>{t('restoreBtn')}</button>
+            <button className="btn ghost" onClick={discardRestore}>{t('restoreDiscard')}</button>
+          </div>
+        </div>
+      )}
       <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav(-1)}>← Back</button>
 
       {(profile.role === 'admin' || cl.insp_status === 'approved') && (

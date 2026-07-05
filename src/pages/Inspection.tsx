@@ -13,6 +13,7 @@ import { REF_MAP } from '../lib/refmap'
 import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
 import EmailModal from '../components/EmailModal'
+import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
 
 type Tab5 = 'form'|'measure'|'pallet'|'extra'|'100pct'
 
@@ -113,9 +114,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [logoUrl, setLogoUrl] = useState('')
   const [customDisps, setCustomDisps] = useState<CustomDisp[]>([])
   const [dispSaveChecked, setDispSaveChecked] = useState(false)
+  const [restore, setRestore] = useState<{ form_data?: unknown; summary?: unknown; pallet_data?: unknown } | null>(null)
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
 
   const load = useCallback(async () => {
+    const draft = await getLocalDraft('inspection', id!)
     const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
     if (ie || !i) { setLoadErr(ie?.message || 'Inspection not found'); return }
     const fi: Insp = {
@@ -132,9 +135,39 @@ export default function Inspection({ profile }: { profile: Profile }) {
     setDefects((d as Defect[]) || [])
     const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
     setPhotos((p as Photo[]) || [])
+    if (draft) {
+      const serverContent = JSON.stringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
+      if (JSON.stringify(draft.data) !== serverContent) setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
+      else await clearLocalDraft('inspection', id!)
+    }
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  // B6 Stage 1 — mirror the open inspection to this device on every change, as a
+  // safety net alongside the normal Supabase writes. Pure insurance; failures in
+  // localDraft are swallowed and never affect the live inspection.
+  useEffect(() => {
+    if (!insp?.id) return
+    saveLocalDraft('inspection', insp.id, { form_data: insp.form_data, summary: insp.summary, pallet_data: insp.pallet_data }, (insp as { updated_at?: string }).updated_at ?? null)
+  }, [insp])
+
+  const applyRestore = async () => {
+    if (!insp || !restore) return
+    const r = restore
+    const next = {
+      ...insp,
+      form_data: (r.form_data as Insp['form_data']) ?? insp.form_data,
+      summary: (r.summary as Insp['summary']) ?? insp.summary,
+      pallet_data: (r.pallet_data as Insp['pallet_data']) ?? insp.pallet_data,
+    }
+    setInsp(next)
+    setRestore(null)
+    try {
+      await supabase.from('inspections').update({ form_data: next.form_data, summary: next.summary, pallet_data: next.pallet_data, updated_at: new Date().toISOString() }).eq('id', insp.id)
+    } catch { /* remains in the local draft until the next successful save */ }
+  }
+  const discardRestore = async () => { if (insp) await clearLocalDraft('inspection', insp.id); setRestore(null) }
 
   const loadCustomDisps = useCallback(async () => {
     const { data } = await supabase.from('custom_dispositions').select('id,label,cls').order('label')
@@ -588,6 +621,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (!confirmed) return
     const { error } = await supabase.from('inspections').update({ status:'submitted', submitted_at:new Date().toISOString(), updated_at:new Date().toISOString() }).eq('id', insp.id)
     if (error) { alert('Submit failed: '+error.message); return }
+    await clearLocalDraft('inspection', insp.id)
     setSubmitMsg('✓ '+t('submit')); load()
   }
 
@@ -746,6 +780,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   return (
     <div className="page" style={{ paddingBottom: inspectorEditable ? 84 : undefined }}>
+      {restore && (
+        <div className="card" style={{ borderColor: 'var(--amber)', background: 'var(--amber-bg)', marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('restoreTitle')}</div>
+          <div style={{ fontSize: 13, marginBottom: 10 }}>{t('restoreBody')}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn" onClick={applyRestore}>{t('restoreBtn')}</button>
+            <button className="btn ghost" onClick={discardRestore}>{t('restoreDiscard')}</button>
+          </div>
+        </div>
+      )}
       <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, marginBottom:12 }} onClick={() => nav(-1)}>← Back</button>
       {/* Header */}
       <div className="card">
