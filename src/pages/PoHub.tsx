@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import type { Profile } from '../App'
 import PoInfo from './PoInfo'
 import EmailModal from '../components/EmailModal'
+import PoStatusStrip from '../components/PoStatusStrip'
+import CustomerAccessCard from '../components/CustomerAccessCard'
 
 interface Insp { id: string; part_no: string; status: string; updated_at: string; inspector_id: string }
 interface Cont { id: string; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string }
@@ -84,7 +86,11 @@ export default function PoHub({ profile }: { profile: Profile }) {
           <button className="btn danger" style={{ minHeight: 36, padding: '6px 12px', fontSize: 13, marginTop: 8 }} onClick={delPO}>🗑 Delete entire PO</button>}
       </div>
 
+      <PoStatusStrip po={po} profile={profile} refreshKey={insps.length + conts.length} />
+
       <PoInfo po={po} profile={profile} refreshKey={insps.length + conts.length} />
+
+      {profile.role === 'admin' && <CustomerAccessCard po={po} />}
 
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>

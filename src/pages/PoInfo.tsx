@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../App'
 import * as XLSX from 'xlsx'
+import { sumLoadedByPart } from '../lib/poStatus'
 
 // PO master info + ordered items for the PO detail page (Phase 1).
 // - Info card: customer / date / destination, editable by admin.
@@ -43,22 +44,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     } else setItems([])
     // Loaded quantities: sum confirmed container-loading contents for this PO.
     const { data: conts } = await supabase.from('container_loadings').select('data').eq('po_no', po)
-    const sums: Record<string, number> = {}
-    for (const c of (conts as { data: any }[]) || []) {
-      const d = c.data || {}
-      if ((d.loading_type || 'pallet') === 'pallet') {
-        for (const pd of Object.values(d.pallets || {})) {
-          for (const ct of ((pd as any).contents || [])) {
-            if (ct.part_no) sums[ct.part_no] = (sums[ct.part_no] || 0) + (Number(ct.qty) || 0)
-          }
-        }
-      } else {
-        for (const ct of (d.non_pallet_contents || [])) {
-          if (ct.part_no) sums[ct.part_no] = (sums[ct.part_no] || 0) + (Number(ct.qty) || 0)
-        }
-      }
-    }
-    setLoadedQty(sums)
+    setLoadedQty(sumLoadedByPart((conts as { data: unknown }[]) || []))
   }, [po, isApprover])
   useEffect(() => { load() }, [load, refreshKey])
 
