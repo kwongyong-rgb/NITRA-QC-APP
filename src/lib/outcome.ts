@@ -80,11 +80,13 @@ export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string
 
 export function summaryItems(rows: Array<{ parameter: string; outcome: string }>): string[] {
   const hundred = rows.filter((x) => x.outcome === '100% Inspection')
-  const additional = rows.filter((x) => x.outcome.startsWith('Additional Inspection — Pass'))
+  const addRequired = rows.filter((x) => x.outcome === 'Additional Inspection Required')
+  const addPass = rows.filter((x) => x.outcome.startsWith('Additional Inspection — Pass'))
   const items: string[] = []
   for (const r of hundred) items.push(`${r.parameter} — required 100% inspection`)
-  for (const r of additional) items.push(`${r.parameter} — passed after additional sampling`)
-  if (!hundred.length && !additional.length) items.push('All inspected parameters passed on the initial sample.')
+  for (const r of addRequired) items.push(`${r.parameter} — failed the initial sample; additional inspection required`)
+  for (const r of addPass) items.push(`${r.parameter} — passed after additional sampling`)
+  if (!hundred.length && !addRequired.length && !addPass.length) items.push('All inspected parameters passed on the initial sample.')
   else items.push('All other inspected parameters passed.')
   return items
 }

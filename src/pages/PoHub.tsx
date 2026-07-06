@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useI18n } from '../lib/i18n'
 import type { Profile } from '../App'
 import PoInfo from './PoInfo'
 import EmailModal from '../components/EmailModal'
@@ -20,6 +21,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const { poNo } = useParams()
   const po = decodeURIComponent(poNo || '')
   const nav = useNavigate()
+  const { t } = useI18n()
   const [insps, setInsps] = useState<Insp[]>([])
   const [conts, setConts] = useState<Cont[]>([])
   const [busy, setBusy] = useState(false)
@@ -52,13 +54,13 @@ export default function PoHub({ profile }: { profile: Profile }) {
   }
 
   const delInsp = async (r: Insp) => {
-    if (!confirm('Delete this wheel inspection? This cannot be undone.')) return
+    if (!confirm(t('delWheelConfirm'))) return
     const { error } = await supabase.from('inspections').delete().eq('id', r.id)
     if (error) { alert('Delete failed: ' + error.message); return }
     load()
   }
   const delCont = async (c: Cont) => {
-    if (!confirm('Delete this container loading? This cannot be undone.')) return
+    if (!confirm(t('delContConfirm'))) return
     const { error } = await supabase.from('container_loadings').delete().eq('id', c.id)
     if (error) { alert('Delete failed: ' + error.message); return }
     load()
@@ -77,13 +79,13 @@ export default function PoHub({ profile }: { profile: Profile }) {
 
   return (
     <div className="page">
-      <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav('/')}>← All POs</button>
+      <button className="btn ghost" style={{ minHeight: 34, padding: '4px 12px', fontSize: 13, marginBottom: 12 }} onClick={() => nav('/')}>← {t('allPos')}</button>
 
       <div className="card">
-        <h2 style={{ marginBottom: 4 }}>PO: {po || '(No PO)'}</h2>
-        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{insps.length} wheel inspection(s) · {conts.length} container loading(s)</p>
+        <h2 style={{ marginBottom: 4 }}>PO: {po || t('noPo')}</h2>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{insps.length} {t('wheelInspections')} · {conts.length} {t('containerLoadings')}</p>
         {profile.role === 'admin' && (insps.length > 0 || conts.length > 0) &&
-          <button className="btn danger" style={{ minHeight: 36, padding: '6px 12px', fontSize: 13, marginTop: 8 }} onClick={delPO}>🗑 Delete entire PO</button>}
+          <button className="btn danger" style={{ minHeight: 36, padding: '6px 12px', fontSize: 13, marginTop: 8 }} onClick={delPO}>🗑 {t('deleteEntirePo')}</button>}
       </div>
 
       <PoStatusStrip po={po} profile={profile} refreshKey={insps.length + conts.length} />
@@ -94,10 +96,10 @@ export default function PoHub({ profile }: { profile: Profile }) {
 
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>Wheel inspections</h2>
-          <Link to={`/new?po=${encodeURIComponent(po)}`}><button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}>＋ Add SKU</button></Link>
+          <h2 style={{ margin: 0 }}>{t('wheelInspections')}</h2>
+          <Link to={`/new?po=${encodeURIComponent(po)}`}><button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}>＋ {t('addSku')}</button></Link>
         </div>
-        {insps.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No wheel inspections yet.</p>}
+        {insps.length === 0 && <p className="muted" style={{ fontSize: 13 }}>{t('noWheelInspections')}</p>}
         {insps.map(r => (
           <div key={r.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
             <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
@@ -106,7 +108,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
                   <Link to={`/inspection/${r.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{r.part_no}</Link>
                   <span className={`pill ${r.status}`}>{r.status}</span>
                 </div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Updated: {fmt(r.updated_at)}</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>{t('updated')}: {fmt(r.updated_at)}</div>
               </div>
               {canDelInsp(r) && <button className="btn danger" style={{ minHeight: 36, padding: '4px 10px', fontSize: 13 }} onClick={() => delInsp(r)}>🗑</button>}
             </div>
@@ -116,19 +118,19 @@ export default function PoHub({ profile }: { profile: Profile }) {
 
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>Container loadings</h2>
-          <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} disabled={busy} onClick={addContainer}>＋ Add container</button>
+          <h2 style={{ margin: 0 }}>{t('containerLoadings')}</h2>
+          <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} disabled={busy} onClick={addContainer}>＋ {t('addContainer')}</button>
         </div>
-        {conts.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No container loadings yet.</p>}
+        {conts.length === 0 && <p className="muted" style={{ fontSize: 13 }}>{t('noContainerLoadings')}</p>}
         {conts.map(c => (
           <div key={c.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
             <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
               <div style={{ flex: 1 }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <Link to={`/container/${c.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{c.container_no || '(no container no.)'}</Link>
+                  <Link to={`/container/${c.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{c.container_no || t('noContainerNo')}</Link>
                   <span className={`pill ${c.insp_status}`}>{c.insp_status}</span>
                 </div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Seal: {c.seal_no || '—'} · Status: {c.status} · Updated: {fmt(c.updated_at)}</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>{t('seal')}: {c.seal_no || '—'} · {t('status')}: {c.status} · {t('updated')}: {fmt(c.updated_at)}</div>
               </div>
               {canDelCont(c) && <button className="btn danger" style={{ minHeight: 36, padding: '4px 10px', fontSize: 13 }} onClick={() => delCont(c)}>🗑</button>}
             </div>

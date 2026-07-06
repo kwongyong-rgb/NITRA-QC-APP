@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { useI18n } from '../lib/i18n'
 import type { Profile } from '../App'
 import * as XLSX from 'xlsx'
 import { sumLoadedByPart } from '../lib/poStatus'
@@ -18,6 +19,7 @@ const HDR_PART = ['part number', 'part no', 'part no.', 'partnumber', 'part', 's
 const HDR_QTY = ['qty', 'quantity', 'qty ordered', 'ordered qty', 'order qty', 'pcs', 'amount', 'qty_ordered']
 
 export default function PoInfo({ po, profile, refreshKey }: { po: string; profile: Profile; refreshKey?: number }) {
+  const { t } = useI18n()
   const [row, setRow] = useState<PoRow | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [loadedQty, setLoadedQty] = useState<Record<string, number>>({})
@@ -66,7 +68,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     if (!row || !addItem) return
     const part = addItem.part_no.trim()
     const qty = parseInt(addItem.qty, 10)
-    if (!part) { setErr('Part number is required.'); return }
+    if (!part) { setErr(t('partRequired')); return }
     if (!Number.isFinite(qty) || qty < 0) { setErr('Quantity must be a number.'); return }
     setBusy(true); setErr('')
     const { error } = await supabase.from('po_items').upsert({ po_id: row.id, part_no: part, qty_ordered: qty }, { onConflict: 'po_id,part_no' })
@@ -155,31 +157,31 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
       {/* ---- PO information ---- */}
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>PO information</h2>
+          <h2 style={{ margin: 0 }}>{t('poInformation')}</h2>
           {isApprover && row && !editInfo && (
             <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}
-              onClick={() => setEditInfo({ customer_name: row.customer_name || '', po_date: row.po_date || '', destination: row.destination || '' })}>✎ Edit</button>
+              onClick={() => setEditInfo({ customer_name: row.customer_name || '', po_date: row.po_date || '', destination: row.destination || '' })}>✎ {t('edit')}</button>
           )}
         </div>
         {err && <div className="muted" style={{ color: 'var(--fail, #C0392B)', marginTop: 8 }}>{err}</div>}
         {!editInfo && (
           <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.9 }}>
-            <div><span className="muted">Customer:</span> <b>{row?.customer_name || '—'}</b></div>
-            <div><span className="muted">PO date:</span> <b>{fmtDate(row?.po_date || null)}</b></div>
-            <div><span className="muted">Destination:</span> <b>{row?.destination || '—'}</b></div>
+            <div><span className="muted">{t('customer')}:</span> <b>{row?.customer_name || '—'}</b></div>
+            <div><span className="muted">{t('poDate')}:</span> <b>{fmtDate(row?.po_date || null)}</b></div>
+            <div><span className="muted">{t('destination')}:</span> <b>{row?.destination || '—'}</b></div>
           </div>
         )}
         {editInfo && (
           <div style={{ marginTop: 10 }}>
-            <label className="fld"><span>Customer name</span>
+            <label className="fld"><span>{t('customerName')}</span>
               <input className="txt" value={editInfo.customer_name} onChange={e => setEditInfo({ ...editInfo, customer_name: e.target.value })} /></label>
-            <label className="fld"><span>PO date</span>
+            <label className="fld"><span>{t('poDate')}</span>
               <input className="txt" type="date" value={editInfo.po_date} onChange={e => setEditInfo({ ...editInfo, po_date: e.target.value })} /></label>
-            <label className="fld"><span>Destination</span>
+            <label className="fld"><span>{t('destination')}</span>
               <input className="txt" value={editInfo.destination} onChange={e => setEditInfo({ ...editInfo, destination: e.target.value })} /></label>
             <div className="row" style={{ marginTop: 10, gap: 8 }}>
-              <button className="btn" disabled={busy} onClick={saveInfo}>{busy ? 'Saving…' : 'Save'}</button>
-              <button className="btn ghost" disabled={busy} onClick={() => setEditInfo(null)}>Cancel</button>
+              <button className="btn" disabled={busy} onClick={saveInfo}>{busy ? t('saving') : t('save')}</button>
+              <button className="btn ghost" disabled={busy} onClick={() => setEditInfo(null)}>{t('cancel')}</button>
             </div>
           </div>
         )}
@@ -188,21 +190,21 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
       {/* ---- Ordered items ---- */}
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <h2 style={{ margin: 0 }}>Ordered items</h2>
+          <h2 style={{ margin: 0 }}>{t('orderedItems')}</h2>
           {isApprover && row && (
             <div className="row" style={{ gap: 8 }}>
-              <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => { setErr(''); setAddItem({ part_no: '', qty: '' }) }}>＋ Add item</button>
-              <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => fileRef.current?.click()}>⬆ Upload Excel</button>
+              <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => { setErr(''); setAddItem({ part_no: '', qty: '' }) }}>＋ {t('addItem')}</button>
+              <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => fileRef.current?.click()}>⬆ {t('uploadExcel')}</button>
               <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
             </div>
           )}
         </div>
-        {items.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No ordered items recorded yet.{isApprover ? ' Add items or upload the PO item list (Excel).' : ''}</p>}
+        {items.length === 0 && <p className="muted" style={{ fontSize: 13 }}>{t('noOrderedItems')}{isApprover ? t('addUploadHint') : ''}</p>}
         {items.length > 0 && (
           <div style={{ overflowX: 'auto' }}>
             <table className="tbl" style={{ marginTop: 8, minWidth: 420 }}>
-              <thead><tr><th style={{ textAlign: 'left' }}>Part number</th><th>Ordered</th><th>Loaded</th><th>Remaining</th>{isApprover && <th />}</tr></thead>
+              <thead><tr><th style={{ textAlign: 'left' }}>{t('partNumber')}</th><th>{t('ordered')}</th><th>{t('loaded')}</th><th>{t('remainingQty')}</th>{isApprover && <th />}</tr></thead>
               <tbody>
                 {items.map(it => {
                   const loaded = loadedQty[it.part_no] || 0
@@ -242,15 +244,15 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
       {addItem && (
         <div className="modal-overlay" onClick={() => setAddItem(null)}>
           <div className="modal" style={{ width: 'min(420px, 94vw)' }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginTop: 0 }}>Add ordered item</h2>
-            <label className="fld"><span>Part number</span>
+            <h2 style={{ marginTop: 0 }}>{t('addOrderedItem')}</h2>
+            <label className="fld"><span>{t('partNumber')}</span>
               <input className="txt" value={addItem.part_no} autoFocus onChange={e => setAddItem({ ...addItem, part_no: e.target.value })} /></label>
-            <label className="fld"><span>Quantity ordered</span>
+            <label className="fld"><span>{t('qtyOrdered')}</span>
               <input className="txt" inputMode="numeric" value={addItem.qty} onChange={e => setAddItem({ ...addItem, qty: e.target.value })} /></label>
             {err && <div className="muted" style={{ color: 'var(--fail, #C0392B)' }}>{err}</div>}
             <div className="row" style={{ marginTop: 12, gap: 8 }}>
-              <button className="btn" disabled={busy} onClick={saveNewItem}>{busy ? 'Saving…' : 'Save item'}</button>
-              <button className="btn ghost" disabled={busy} onClick={() => setAddItem(null)}>Cancel</button>
+              <button className="btn" disabled={busy} onClick={saveNewItem}>{busy ? t('saving') : t('saveItem')}</button>
+              <button className="btn ghost" disabled={busy} onClick={() => setAddItem(null)}>{t('cancel')}</button>
             </div>
           </div>
         </div>
@@ -260,10 +262,10 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
       {review && (
         <div className="modal-overlay" onClick={() => setReview(null)}>
           <div className="modal" style={{ width: 'min(560px, 96vw)', maxHeight: '86vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginTop: 0 }}>Review extracted items</h2>
-            <p className="muted" style={{ fontSize: 13 }}>Nothing is saved yet. Fix any highlighted rows, then confirm. Existing items with the same part number will have their ordered quantity updated.</p>
+            <h2 style={{ marginTop: 0 }}>{t('reviewExtracted')}</h2>
+            <p className="muted" style={{ fontSize: 13 }}>{t('reviewHint')}</p>
             <table className="tbl">
-              <thead><tr><th style={{ textAlign: 'left' }}>Part number</th><th>Qty</th><th /></tr></thead>
+              <thead><tr><th style={{ textAlign: 'left' }}>{t('partNumber')}</th><th>{t('qty')}</th><th /></tr></thead>
               <tbody>
                 {review.map((r, i) => {
                   const bad = !r.part_no.trim() || !Number.isFinite(parseInt(r.qty, 10))

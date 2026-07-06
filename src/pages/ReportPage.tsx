@@ -75,6 +75,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     loadingReport: 'Loading report…', reportUnavailable: 'Report unavailable', translating: 'Translating…',
     txUnavailable: 'Automatic translation is unavailable — some fields are shown in the original language.',
     findRequired100: '{p} — required 100% inspection', findAddPass: '{p} — passed after additional sampling',
+    findAddRequired: '{p} — failed the initial sample; additional inspection required',
     findAllInitial: 'All inspected parameters passed on the initial sample.',
     findAllOther: 'All other inspected parameters passed.',
     out_pass: 'Pass', out_100: '100% Inspection',
@@ -109,6 +110,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     loadingReport: 'Bericht wird geladen …', reportUnavailable: 'Bericht nicht verfügbar', translating: 'Übersetzen …',
     txUnavailable: 'Automatische Übersetzung nicht verfügbar — einige Felder werden im Original angezeigt.',
     findRequired100: '{p} — 100%-Prüfung erforderlich', findAddPass: '{p} — nach zusätzlicher Stichprobe bestanden',
+    findAddRequired: '{p} — Erststichprobe nicht bestanden; zusätzliche Prüfung erforderlich',
     findAllInitial: 'Alle geprüften Parameter haben die Erststichprobe bestanden.',
     findAllOther: 'Alle übrigen geprüften Parameter bestanden.',
     out_pass: 'Bestanden', out_100: '100%-Prüfung',
@@ -143,6 +145,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     loadingReport: '报告加载中…', reportUnavailable: '报告不可用', translating: '翻译中…',
     txUnavailable: '自动翻译不可用 — 部分字段显示原文。',
     findRequired100: '{p} — 需进行全检', findAddPass: '{p} — 加抽样后合格',
+    findAddRequired: '{p} — 初始样本不合格；需加抽检验',
     findAllInitial: '所有检验参数在初始样本中均合格。',
     findAllOther: '所有其他检验参数均合格。',
     out_pass: '合格', out_100: '全检 (100%)',
@@ -181,11 +184,13 @@ const outcomeColor = (o: string) => (o === '100% Inspection' ? 'var(--fail)' : o
 
 function buildFindings(rows: OutcomeRow[], L: Record<string, string>): string[] {
   const hundred = rows.filter(x => x.outcome === '100% Inspection')
-  const additional = rows.filter(x => x.outcome.startsWith('Additional Inspection — Pass'))
+  const addRequired = rows.filter(x => x.outcome === 'Additional Inspection Required')
+  const addPass = rows.filter(x => x.outcome.startsWith('Additional Inspection — Pass'))
   const items: string[] = []
   for (const r of hundred) items.push(L.findRequired100.replace('{p}', r.parameter))
-  for (const r of additional) items.push(L.findAddPass.replace('{p}', r.parameter))
-  items.push(!hundred.length && !additional.length ? L.findAllInitial : L.findAllOther)
+  for (const r of addRequired) items.push(L.findAddRequired.replace('{p}', r.parameter))
+  for (const r of addPass) items.push(L.findAddPass.replace('{p}', r.parameter))
+  items.push((!hundred.length && !addRequired.length && !addPass.length) ? L.findAllInitial : L.findAllOther)
   return items
 }
 

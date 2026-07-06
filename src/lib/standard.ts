@@ -7,6 +7,7 @@ export interface ChecklistItem {
   label: Bi
   standard: Bi
   glossBlackOnly?: boolean   // if true, auto-NA for non-gloss-black finishes
+  blackOnly?: boolean        // if true, auto-NA for non-black finishes (any black qualifies)
 }
 export interface Section {
   key: string
@@ -29,7 +30,7 @@ export const SECTIONS: Section[] = [
       { key: 'area_e', group: 'A', label: { en: 'Area E — Valve hole', zh: 'E区 — 气门孔' }, standard: { en: 'Free of burrs', zh: '无毛刺' } },
       { key: 'tpms_hole', group: 'A', label: { en: 'TPMS Dimension', zh: 'TPMS 尺寸' }, standard: { en: 'Confirm TPMS dimensions match the SKU spec shown below', zh: '确认TPMS尺寸与下方SKU规格一致' } },
       { key: 'hat_marks', group: 'A', label: { en: 'No hat marks', zh: '无压痕' }, standard: { en: 'Wheel face free of visible hat marks', zh: '轮毂正面须无可见压痕' }, glossBlackOnly: true },
-      { key: 'orange_peel', group: 'A', label: { en: 'Smooth surface, no orange peel', zh: '表面光滑无橘皮' }, standard: { en: 'Per approved sample', zh: '按认可样品' }, glossBlackOnly: true },
+      { key: 'orange_peel', group: 'A', label: { en: 'Smooth surface, no orange peel', zh: '表面光滑无橘皮' }, standard: { en: 'Per approved sample', zh: '按认可样品' }, blackOnly: true },
       { key: 'bolt_cone_paint', group: 'A', label: { en: 'Bolt hole / cone free of paint', zh: '螺栓孔/锥座无涂料' }, standard: { en: 'Free of paint', zh: '须无涂料覆盖' } },
       { key: 'rear_bore_paint', group: 'A', label: { en: 'Rear centre bore + mounting face paint-free', zh: '背面中心孔/安装面无涂料' }, standard: { en: 'Free of paint', zh: '须无涂料' } },
       { key: 'coating_total', group: 'A', label: { en: 'Total coating thickness', zh: '涂层总厚度' }, standard: { en: 'Min. between 120–130 µm', zh: '最小120至130µm' } },
@@ -109,6 +110,10 @@ export interface Sku {
 
 export function isGlossBlack(finish: string) {
   return finish.toUpperCase().includes('GLOSS BLACK')
+}
+
+export function isBlack(finish: string) {
+  return finish.toUpperCase().includes('BLACK')
 }
 
 export function runoutLimits(d: number) {

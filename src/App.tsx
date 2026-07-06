@@ -122,13 +122,13 @@ export default function App() {
   const showBottomNav = profile.role === 'inspector' && !isWorkScreen
   const showSidebar = profile.role === 'admin' && wide
   const SIDEBAR_ITEMS = [
-    { to: '/dashboard', label: 'Dashboard', icon: '🏠' },
-    { to: '/', label: 'POs', icon: '📋' },
-    { to: '/approvals', label: 'Approvals', icon: '✅', badge: pendingCount },
-    { to: '/users', label: 'Users', icon: '👥' },
-    { to: '/skus', label: 'SKUs', icon: '🛞' },
-    { to: '/reference', label: 'Reference', icon: '🖼' },
-    { to: '/settings', label: 'Settings', icon: '⚙️' },
+    { to: '/dashboard', label: t('dashboard'), icon: '🏠' },
+    { to: '/', label: t('pos'), icon: '📋' },
+    { to: '/approvals', label: t('approvals'), icon: '✅', badge: pendingCount },
+    { to: '/users', label: t('users'), icon: '👥' },
+    { to: '/skus', label: t('skus'), icon: '🛞' },
+    { to: '/reference', label: t('reference'), icon: '🖼' },
+    { to: '/settings', label: t('settings'), icon: '⚙️' },
   ]
 
   return (
@@ -201,9 +201,9 @@ export default function App() {
             background: 'var(--navy)', display: 'flex',
             paddingBottom: 'env(safe-area-inset-bottom)' }}>
             {[
-              { to: '/', label: 'POs', icon: '📋', active: location.pathname === '/' || location.pathname.startsWith('/po/') },
-              { to: '/mywork', label: 'My Work', icon: '🛠', active: location.pathname === '/mywork' },
-              { to: '/reference', label: 'Reference', icon: '🖼', active: location.pathname === '/reference' },
+              { to: '/', label: t('pos'), icon: '📋', active: location.pathname === '/' || location.pathname.startsWith('/po/') },
+              { to: '/mywork', label: t('myWork'), icon: '🛠', active: location.pathname === '/mywork' },
+              { to: '/reference', label: t('reference'), icon: '🖼', active: location.pathname === '/reference' },
             ].map(t => (
               <Link key={t.to} to={t.to} style={{ flex: 1, textDecoration: 'none' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,

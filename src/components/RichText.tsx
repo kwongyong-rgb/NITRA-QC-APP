@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 // A tiny, dependency-free rich-text editor (bold / italic / underline / bullet list).
-// Stores its value as simple HTML. Uncontrolled internally to keep the caret stable:
-// the parent's value is only pushed into the DOM when it changes AND the box is not
-// focused (so external inserts like template buttons still appear).
+// Stores its value as simple HTML. Uncontrolled internally to keep the caret stable.
+// IMPORTANT: focus state is tracked in a ref, NOT React state — focusing must not
+// trigger a re-render, or the browser drops the freshly-placed caret and the first
+// click into an empty box fails to type (needing a second/third click). This was
+// the "can't type until I double-click" bug.
 export default function RichText({
   value, onChange, disabled, placeholder,
 }: {
@@ -13,13 +15,15 @@ export default function RichText({
   placeholder?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [focused, setFocused] = useState(false)
+  const focusedRef = useRef(false)
 
+  // Push the parent value into the DOM only when the box is NOT focused, so the
+  // caret is never disturbed while typing. Runs on value change only.
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    if (!focused && el.innerHTML !== (value || '')) el.innerHTML = value || ''
-  }, [value, focused])
+    if (!focusedRef.current && el.innerHTML !== (value || '')) el.innerHTML = value || ''
+  }, [value])
 
   const exec = (cmd: string) => {
     if (disabled) return
@@ -60,14 +64,14 @@ export default function RichText({
           contentEditable={!disabled}
           suppressContentEditableWarning
           onInput={e => onChange((e.target as HTMLDivElement).innerHTML)}
-          onFocus={() => setFocused(true)}
-          onBlur={e => { setFocused(false); onChange((e.target as HTMLDivElement).innerHTML) }}
+          onFocus={() => { focusedRef.current = true }}
+          onBlur={e => { focusedRef.current = false; onChange((e.target as HTMLDivElement).innerHTML) }}
           style={{
             minHeight: 96, padding: '10px 12px', outline: 'none', fontSize: 14, lineHeight: 1.5,
             color: 'var(--ink)', whiteSpace: 'pre-wrap',
           }}
         />
-        {isEmpty && !focused && placeholder && (
+        {isEmpty && placeholder && (
           <div style={{ position: 'absolute', top: 10, left: 12, color: 'var(--ink-soft)', pointerEvents: 'none', fontSize: 14 }}>
             {placeholder}
           </div>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
-import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, type Sku } from '../lib/standard'
+import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, isBlack, type Sku } from '../lib/standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb, MediaCapture } from '../components/PhotoModal'
@@ -399,10 +399,18 @@ export default function Inspection({ profile }: { profile: Profile }) {
     load()
   }
 
-  // Auto-NA for gloss-black-only items when finish is not gloss black
+  // Auto-NA: gloss-black-only items on non-gloss-black finishes; black-only items
+  // (e.g. orange peel) on non-black finishes. Any black finish keeps orange peel.
   const autoNaItems = useMemo(() => {
-    if (!sku || isGlossBlack(sku.finish)) return new Set<string>()
-    return new Set(SECTIONS.flatMap(s => s.items).filter(i => i.glossBlackOnly).map(i => i.key))
+    if (!sku) return new Set<string>()
+    const gb = isGlossBlack(sku.finish)
+    const bk = isBlack(sku.finish)
+    const na = new Set<string>()
+    for (const s of SECTIONS) for (const i of s.items) {
+      if (i.glossBlackOnly && !gb) na.add(i.key)
+      if (i.blackOnly && !bk) na.add(i.key)
+    }
+    return na
   }, [sku])
 
   // ---- Sticky progress bar (QW-2) ----
@@ -1040,6 +1048,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
                                 <div style={{ padding:'3px 6px', background:p.is_pass_photo?'var(--pass-bg)':'var(--fail-bg)', fontSize:10 }}>
                                   <b style={{ color:p.is_pass_photo?'var(--pass)':'var(--fail)' }}>{p.is_pass_photo?'✓P':'✗F'}</b>
                                   {p.piece_no>0&&<> · pc{p.piece_no}</>}
+                                  {p.comment && <div style={{ marginTop:2, color:'var(--ink)', fontWeight:400, lineHeight:1.3, whiteSpace:'normal' }}>{p.comment}</div>}
                                 </div>
                               </div>
                               {(editable || canAmend) && (
