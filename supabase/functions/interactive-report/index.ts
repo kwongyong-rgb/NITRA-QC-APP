@@ -253,6 +253,7 @@ Deno.serve(async (req) => {
     })
 
     const lang = (url.searchParams.get('lang') || 'en').toLowerCase()
+    const viewPo = url.searchParams.get('po')  // shared inspections: render under the viewing PO, not the primary
     let correctiveAction = insp.summary?.corrective_action || insp.summary?.remarks || ''
     let dispositionCustom = insp.summary?.disposition_custom || ''
     let translationNote: string | null = null
@@ -294,7 +295,7 @@ Deno.serve(async (req) => {
       logoUrl,
       insp: {
         part_no: insp.part_no,
-        po_no: insp.po_no,
+        po_no: viewPo || insp.po_no,
         batch: insp.batch,
         lot_size: insp.lot_size,
         app_sample: insp.app_sample,

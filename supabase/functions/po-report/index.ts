@@ -25,15 +25,19 @@ Deno.serve(async (req) => {
     const supaUrl = Deno.env.get('SUPABASE_URL')!
     const supa = createClient(supaUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
+    const { data: links } = await supa.from('inspection_pos').select('inspection_id').eq('po_no', po)
+    const inspIds = (links || []).map((l: any) => l.inspection_id)
     const [{ data: insps }, { data: conts }] = await Promise.all([
-      supa.from('inspections').select('id,part_no,status,updated_at,report_logo_path').eq('po_no', po).order('part_no'),
+      inspIds.length
+        ? supa.from('inspections').select('id,part_no,status,updated_at,report_logo_path').in('id', inspIds).order('part_no')
+        : Promise.resolve({ data: [] }),
       supa.from('container_loadings').select('*').eq('po_no', po).order('container_no'),
     ])
 
     // ---- SKU sections: reuse interactive-report per inspection ----
     const skus = await Promise.all((insps || []).map(async (r: any) => {
       try {
-        const resp = await fetch(`${supaUrl}/functions/v1/interactive-report?id=${encodeURIComponent(r.id)}&lang=${lang}`)
+        const resp = await fetch(`${supaUrl}/functions/v1/interactive-report?id=${encodeURIComponent(r.id)}&lang=${lang}&po=${encodeURIComponent(po)}`)
         const data = await resp.json()
         if (data && data.ok) return { id: r.id, status: r.status, ...data }
       } catch (_) { /* fall through */ }

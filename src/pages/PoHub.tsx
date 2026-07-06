@@ -5,10 +5,12 @@ import { useI18n } from '../lib/i18n'
 import type { Profile } from '../App'
 import PoInfo from './PoInfo'
 import EmailModal from '../components/EmailModal'
+import AttachInspectionModal from '../components/AttachInspectionModal'
+import { linkedInspectionIds, deletePoLinksAndOrphans } from '../lib/inspectionPos'
 import PoStatusStrip from '../components/PoStatusStrip'
 import CustomerAccessCard from '../components/CustomerAccessCard'
 
-interface Insp { id: string; part_no: string; status: string; updated_at: string; inspector_id: string }
+interface Insp { id: string; part_no: string; status: string; updated_at: string; inspector_id: string; off_po?: boolean }
 interface Cont { id: string; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string }
 
 function fmt(dt: string | null) {
@@ -25,10 +27,16 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const [insps, setInsps] = useState<Insp[]>([])
   const [conts, setConts] = useState<Cont[]>([])
   const [busy, setBusy] = useState(false)
+  const [attachOpen, setAttachOpen] = useState(false)
 
   const load = useCallback(async () => {
-    const { data: i } = await supabase.from('inspections').select('id,part_no,status,updated_at,inspector_id').eq('po_no', po).order('updated_at', { ascending: false })
-    setInsps((i as Insp[]) || [])
+    const { ids, offPo } = await linkedInspectionIds(po)
+    let inspList: Insp[] = []
+    if (ids.length) {
+      const { data: i } = await supabase.from('inspections').select('id,part_no,status,updated_at,inspector_id').in('id', ids).order('updated_at', { ascending: false })
+      inspList = ((i as Insp[]) || []).map(x => ({ ...x, off_po: offPo[x.id] || false }))
+    }
+    setInsps(inspList)
     const { data: c } = await supabase.from('container_loadings').select('id,container_no,seal_no,status,insp_status,updated_at,inspector_id').eq('po_no', po).order('updated_at', { ascending: false })
     setConts((c as Cont[]) || [])
   }, [po])
@@ -55,8 +63,12 @@ export default function PoHub({ profile }: { profile: Profile }) {
 
   const delInsp = async (r: Insp) => {
     if (!confirm(t('delWheelConfirm'))) return
-    const { error } = await supabase.from('inspections').delete().eq('id', r.id)
-    if (error) { alert('Delete failed: ' + error.message); return }
+    await supabase.from('inspection_pos').delete().eq('inspection_id', r.id).eq('po_no', po)
+    const { data: still } = await supabase.from('inspection_pos').select('inspection_id').eq('inspection_id', r.id).limit(1)
+    if (!still || still.length === 0) {
+      const { error } = await supabase.from('inspections').delete().eq('id', r.id)
+      if (error) { alert('Delete failed: ' + error.message); return }
+    }
     load()
   }
   const delCont = async (c: Cont) => {
@@ -70,9 +82,9 @@ export default function PoHub({ profile }: { profile: Profile }) {
 
   const delPO = async () => {
     if (!confirm(`Delete the ENTIRE PO “${po || '(No PO)'}”?\n\nThis permanently deletes its ${insps.length} wheel inspection(s) and ${conts.length} container loading(s), including their photos.\n\nThis cannot be undone.`)) return
-    const { error: e1 } = await supabase.from('inspections').delete().eq('po_no', po)
+    await deletePoLinksAndOrphans(po)
     const { error: e2 } = await supabase.from('container_loadings').delete().eq('po_no', po)
-    if (e1 || e2) { alert('Delete failed: ' + (e1?.message || e2?.message)); return }
+    if (e2) { alert('Delete failed: ' + e2.message); return }
     await supabase.from('pos').delete().eq('po_no', po) // master row + items (cascade)
     nav('/')
   }
@@ -97,7 +109,10 @@ export default function PoHub({ profile }: { profile: Profile }) {
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>{t('wheelInspections')}</h2>
-          <Link to={`/new?po=${encodeURIComponent(po)}`}><button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}>＋ {t('addSku')}</button></Link>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }} onClick={() => setAttachOpen(true)}>🔗 {t('attachInspection')}</button>
+            <Link to={`/new?po=${encodeURIComponent(po)}`}><button className="btn ghost" style={{ minHeight: 36, padding: '4px 12px', fontSize: 13 }}>＋ {t('addSku')}</button></Link>
+          </div>
         </div>
         {insps.length === 0 && <p className="muted" style={{ fontSize: 13 }}>{t('noWheelInspections')}</p>}
         {insps.map(r => (
@@ -107,6 +122,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
                 <div className="row" style={{ gap: 8 }}>
                   <Link to={`/inspection/${r.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{r.part_no}</Link>
                   <span className={`pill ${r.status}`}>{r.status}</span>
+                  {r.off_po && <span className="pill" style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}>⚠ {t('offPo')}</span>}
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>{t('updated')}: {fmt(r.updated_at)}</div>
               </div>
@@ -148,6 +164,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
           <button className="btn ghost" style={{ minHeight: 40, padding: '6px 16px' }} disabled={busy} onClick={emailPoReport}>✉ Email consolidated report</button>
         </div>
       </div>
+      {attachOpen && <AttachInspectionModal po={po} profile={profile} onClose={() => setAttachOpen(false)} onAttached={load} />}
       {emailOpen && <EmailModal title="Email consolidated PO report" sending={busy}
         onSend={doEmailPo} onClose={() => setEmailOpen(false)} />}
     </div>

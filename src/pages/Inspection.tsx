@@ -14,6 +14,7 @@ import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
 import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
+import SharedPosCard from '../components/SharedPosCard'
 
 type Tab5 = 'form'|'measure'|'pallet'|'extra'|'100pct'
 
@@ -799,6 +800,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
         </div>
       )}
       <button className="btn ghost" style={{ minHeight:34, padding:'4px 12px', fontSize:13, marginBottom:12 }} onClick={() => nav(-1)}>← Back</button>
+      {(profile.role === 'admin' || profile.role === 'inspector') && <SharedPosCard inspId={insp.id} partNo={insp.part_no} profile={profile} />}
       {/* Header */}
       <div className="card">
         <div className="row"><h2 style={{ flex:1 }}>{insp.part_no} <span className={`pill ${insp.status}`}>{insp.status}</span></h2></div>

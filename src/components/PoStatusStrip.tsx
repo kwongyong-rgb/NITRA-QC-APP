@@ -40,11 +40,15 @@ export default function PoStatusStrip({ po, profile, refreshKey }: { po: string;
 
   const load = useCallback(async () => {
     const poId = await getOrCreatePoId(po, profile.role === 'admin')
+    const linkRes = await supabase.from('inspection_pos').select('inspection_id').eq('po_no', po)
+    const inspIds = ((linkRes.data as { inspection_id: string }[]) || []).map(r => r.inspection_id)
     const [itemsRes, inspRes, contRes] = await Promise.all([
       poId
         ? supabase.from('po_items').select('part_no,qty_ordered').eq('po_id', poId)
         : Promise.resolve({ data: [] as { part_no: string; qty_ordered: number }[] }),
-      supabase.from('inspections').select('status,part_no').eq('po_no', po),
+      inspIds.length
+        ? supabase.from('inspections').select('status,part_no').in('id', inspIds)
+        : Promise.resolve({ data: [] as { status: string; part_no: string | null }[] }),
       supabase.from('container_loadings').select('insp_status,data').eq('po_no', po),
     ])
     setStages(computeStages({
