@@ -244,9 +244,9 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
       {/* ---- Add item modal ---- */}
       {addItem && (
         <div className="modal-overlay" onClick={() => setAddItem(null)}>
-          <div className="modal" style={{ width: 'min(420px, 94vw)' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ width: 'min(420px, 94vw)', overflow: 'visible' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>{t('addOrderedItem')}</h2>
-            <label className="fld"><span>{t('partNumber')}</span>
+            <label className="fld" style={{ position: 'relative', zIndex: 1 }}><span>{t('partNumber')}</span>
               <PartPicker value={addItem.part_no} poParts={null} allowFreeText
                 placeholder={t('partNumber')}
                 onChange={part => setAddItem({ ...addItem, part_no: part })} /></label>
