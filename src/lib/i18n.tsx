@@ -159,6 +159,8 @@ const STR = {
   pdfReport:      { en: '📄 PDF Report',               zh: '📄 PDF报告' },
   online:         { en: 'Online',                     zh: '在线' },
   offline:        { en: 'Offline',                    zh: '离线' },
+  offlineSaved:   { en: 'You’re offline — changes are saved on this device and will sync when the connection is back.', zh: '您已离线——更改已保存在本设备，恢复联网后将自动同步。' },
+  offlineCantSubmit: { en: 'You’re offline. Your work is saved on this device — reconnect to submit for approval.', zh: '您已离线。工作已保存在本设备——请恢复联网后再提交审批。' },
 } satisfies Record<string, Bi>
 
 type Key = keyof typeof STR

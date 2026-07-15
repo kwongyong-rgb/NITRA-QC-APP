@@ -19,11 +19,12 @@ export async function loadSkuLite(): Promise<SkuLite[]> {
   return skuCache
 }
 
-export default function PartPicker({ value, disabled, poParts, placeholder, onChange }: {
+export default function PartPicker({ value, disabled, poParts, placeholder, allowFreeText, onChange }: {
   value: string
   disabled?: boolean
   poParts?: Set<string> | null   // part numbers on the current PO (null/undefined = no PO context)
   placeholder?: string
+  allowFreeText?: boolean         // when true, typed text propagates live (a part not in the SKU master is still allowed)
   onChange: (part: string, offPo: boolean) => void
 }) {
   const [skus, setSkus] = useState<SkuLite[]>([])
@@ -66,7 +67,7 @@ export default function PartPicker({ value, disabled, poParts, placeholder, onCh
         placeholder={placeholder || 'Search part / model / size…'}
         value={q}
         onFocus={() => !disabled && setOpen(true)}
-        onChange={e => { setQ(e.target.value); setOpen(true); if (e.target.value === '') onChange('', false) }}
+        onChange={e => { const v = e.target.value; setQ(v); setOpen(true); if (allowFreeText || v === '') onChange(v, false) }}
         onKeyDown={e => { if (e.key === 'Enter' && results.length) { e.preventDefault(); pick(results[0].part_no) } if (e.key === 'Escape') setOpen(false) }}
       />
       {open && !disabled && results.length > 0 && (

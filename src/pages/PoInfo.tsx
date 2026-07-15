@@ -4,6 +4,7 @@ import { useI18n } from '../lib/i18n'
 import type { Profile } from '../App'
 import * as XLSX from 'xlsx'
 import { sumLoadedByPart } from '../lib/poStatus'
+import PartPicker from '../components/PartPicker'
 
 // PO master info + ordered items for the PO detail page (Phase 1).
 // - Info card: customer / date / destination, editable by admin.
@@ -246,7 +247,9 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
           <div className="modal" style={{ width: 'min(420px, 94vw)' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>{t('addOrderedItem')}</h2>
             <label className="fld"><span>{t('partNumber')}</span>
-              <input className="txt" value={addItem.part_no} autoFocus onChange={e => setAddItem({ ...addItem, part_no: e.target.value })} /></label>
+              <PartPicker value={addItem.part_no} poParts={null} allowFreeText
+                placeholder={t('partNumber')}
+                onChange={part => setAddItem({ ...addItem, part_no: part })} /></label>
             <label className="fld"><span>{t('qtyOrdered')}</span>
               <input className="txt" inputMode="numeric" value={addItem.qty} onChange={e => setAddItem({ ...addItem, qty: e.target.value })} /></label>
             {err && <div className="muted" style={{ color: 'var(--fail, #C0392B)' }}>{err}</div>}

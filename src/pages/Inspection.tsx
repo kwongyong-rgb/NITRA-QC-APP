@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
@@ -15,6 +15,16 @@ import type { Profile } from '../App'
 import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
 import SharedPosCard from '../components/SharedPosCard'
+
+// A save/load failure caused by being offline (vs a real server error). We treat
+// these softly: keep the on-screen + on-device work, show a calm notice, and
+// never strand the user on a dead-end error page. (Real auto-sync is Stage 2's
+// write-queue batch; this just stops offline edits from crashing the screen.)
+function isNetworkErr(e?: { message?: string } | null): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true
+  const m = (e?.message || '').toLowerCase()
+  return /load failed|failed to fetch|networkerror|network request failed|network error/.test(m)
+}
 
 type Tab5 = 'form'|'measure'|'pallet'|'extra'|'100pct'
 
@@ -94,6 +104,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [insp, setInsp] = useState<Insp|null>(null)
   const [sku, setSku] = useState<Sku|null>(null)
   const [loadErr, setLoadErr] = useState('')
+  const [offlineNote, setOfflineNote] = useState(false)
+  const loadedOnceRef = useRef(false)  // true after one full successful load — lets offline reloads keep the working screen
   const [defects, setDefects] = useState<Defect[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
   const [photoUrls, setPhotoUrls] = useState<Record<string,string>>({})
@@ -121,7 +133,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const load = useCallback(async () => {
     const draft = await getLocalDraft('inspection', id!)
     const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
-    if (ie || !i) { setLoadErr(ie?.message || 'Inspection not found'); return }
+    if (ie || !i) {
+      // Offline reload after we already had the inspection open: keep the working
+      // screen (and the user's optimistic edits) instead of a dead-end error.
+      if (loadedOnceRef.current && isNetworkErr(ie)) { setOfflineNote(true); return }
+      setLoadErr(ie?.message || 'Inspection not found'); return
+    }
     const fi: Insp = {
       ...(i as Insp),
       form_data: { ...emptyFormData(), na_overrides: {}, ...(i as Insp).form_data },
@@ -130,8 +147,13 @@ export default function Inspection({ profile }: { profile: Profile }) {
     }
     setInsp(fi)
     const { data: s, error: se } = await supabase.from('skus').select('*').eq('part_no', i.part_no).single()
-    if (se || !s) { setLoadErr(`SKU "${i.part_no}" not found` + (se ? `: ${se.message}` : '')); return }
+    if (se || !s) {
+      if (loadedOnceRef.current && isNetworkErr(se)) { setOfflineNote(true); return }
+      setLoadErr(`SKU "${i.part_no}" not found` + (se ? `: ${se.message}` : '')); return
+    }
     setSku(s as Sku)
+    loadedOnceRef.current = true  // one full load succeeded — offline reloads may now keep the screen
+    setOfflineNote(false)         // we're clearly online again
     const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
     setDefects((d as Defect[]) || [])
     const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
@@ -351,7 +373,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (!insp) return
     setInsp({ ...insp, form_data: fd })
     const { error } = await supabase.from('inspections').update({ form_data: fd, updated_at: new Date().toISOString() }).eq('id', insp.id)
-    if (error) alert('Save failed: ' + error.message)
+    if (error) {
+      // Offline: keep the optimistic edit (already in state + the local draft) and
+      // show a calm notice — don't nag with a scary "TypeError" alert.
+      if (isNetworkErr(error)) setOfflineNote(true)
+      else alert('Save failed: ' + error.message)
+    } else setOfflineNote(false)
     if (canAmend && insp.status !== 'draft') recordAmend('Edited inspection results', true)
   }
 
@@ -629,7 +656,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const confirmed = confirm(`${t('submitConfirm')}\n\n${t('partNo')}: ${insp.part_no}\n${t('poNo')}: ${insp.po_no||'—'}\n${t('lotSize')}: ${insp.lot_size}\nDefects: ${defects.length}\n${t('disposition')}: ${insp.summary.disposition}\n\n${t('submitWarning')}`)
     if (!confirmed) return
     const { error } = await supabase.from('inspections').update({ status:'submitted', submitted_at:new Date().toISOString(), updated_at:new Date().toISOString() }).eq('id', insp.id)
-    if (error) { alert('Submit failed: '+error.message); return }
+    if (error) { alert(isNetworkErr(error) ? t('offlineCantSubmit') : 'Submit failed: '+error.message); return }
     await clearLocalDraft('inspection', insp.id)
     setSubmitMsg('✓ '+t('submit')); load()
   }
@@ -789,6 +816,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   return (
     <div className="page" style={{ paddingBottom: inspectorEditable ? 84 : undefined }}>
+      {offlineNote && (
+        <div className="banner warn" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>📴</span><span>{t('offlineSaved')}</span>
+        </div>
+      )}
       {restore && (
         <div className="card" style={{ borderColor: 'var(--amber)', background: 'var(--amber-bg)', marginBottom: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('restoreTitle')}</div>
