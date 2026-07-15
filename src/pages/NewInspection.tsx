@@ -5,6 +5,7 @@ import { useI18n } from '../lib/i18n'
 import { sampleSizes, type SamplingSettings } from '../lib/rules'
 import type { Sku } from '../lib/standard'
 import type { Profile } from '../App'
+import { cacheGet, cacheSet } from '../lib/refCache'
 
 export default function NewInspection({ profile }: { profile: Profile }) {
   const { t } = useI18n()
@@ -23,10 +24,18 @@ export default function NewInspection({ profile }: { profile: Profile }) {
   const boxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Read-through cache: refresh from the server when online, fall back to the
+    // on-device copy when offline, so the form still works with no signal.
     supabase.from('skus').select('*').eq('active', true).order('part_no')
-      .then(({ data }) => setSkus((data as Sku[]) || []))
+      .then(({ data, error }) => {
+        if (data && !error) { setSkus(data as Sku[]); void cacheSet('skus', data) }
+        else cacheGet<Sku[]>('skus').then(c => { if (c) setSkus(c) })
+      })
     supabase.from('settings').select('value').eq('key', 'sampling').single()
-      .then(({ data }) => setSamp(data?.value as SamplingSettings))
+      .then(({ data, error }) => {
+        if (data && !error) { setSamp(data.value as SamplingSettings); void cacheSet('sampling', data.value) }
+        else cacheGet<SamplingSettings>('sampling').then(c => { if (c) setSamp(c) })
+      })
   }, [])
 
   // Close the SKU dropdown when clicking anywhere outside it

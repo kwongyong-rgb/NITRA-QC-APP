@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { cacheGet, cacheSet } from '../lib/refCache'
 
 // Mobile-first searchable part-number picker (Phase 4).
 // - Live-filters the active SKU master on part number, model, size, finish.
@@ -14,9 +15,15 @@ export interface SkuLite { part_no: string; model: string | null; size: string |
 let skuCache: SkuLite[] | null = null
 export async function loadSkuLite(): Promise<SkuLite[]> {
   if (skuCache) return skuCache
-  const { data } = await supabase.from('skus').select('part_no,model,size,finish').eq('active', true).order('part_no')
-  skuCache = (data as SkuLite[]) || []
-  return skuCache
+  const { data, error } = await supabase.from('skus').select('part_no,model,size,finish').eq('active', true).order('part_no')
+  if (data && !error) {
+    skuCache = data as SkuLite[]                 // memoize only a real online result
+    void cacheSet('skus_lite', data)             // persist for offline reads
+    return skuCache
+  }
+  // Offline / fetch failed — fall back to the on-device copy WITHOUT memoizing,
+  // so a later online call still refreshes from the server.
+  return (await cacheGet<SkuLite[]>('skus_lite')) || []
 }
 
 export default function PartPicker({ value, disabled, poParts, placeholder, allowFreeText, onChange }: {

@@ -25,6 +25,20 @@ import ErrorBoundary from './components/ErrorBoundary'
 
 export interface Profile { id: string; full_name: string; role: 'inspector' | 'admin' | 'customer' }
 
+// Cache the signed-in profile so an offline blip (profile fetch fails with no
+// network) doesn't get misread as "no user" and bounce a logged-in inspector to
+// the Login screen. Only a real sign-out clears it.
+const PROFILE_KEY = 'nitra_profile'
+function cacheProfile(p: Profile) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)) } catch { /* ignore */ } }
+function readCachedProfile(): Profile | null {
+  try { const s = localStorage.getItem(PROFILE_KEY); return s ? (JSON.parse(s) as Profile) : null } catch { return null }
+}
+function clearCachedProfile() { try { localStorage.removeItem(PROFILE_KEY) } catch { /* ignore */ } }
+function looksOffline(msg?: string): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true
+  return /load failed|failed to fetch|network/i.test(msg || '')
+}
+
 // Captured synchronously at module load: an invite / password-reset link arrives
 // with its one-time token in the URL hash (e.g. #...&type=invite). The Supabase
 // client strips the hash asynchronously, so we read the type now, before that.
@@ -52,16 +66,29 @@ export default function App() {
     if (isPublicReport) return
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { setProfile(null); setMustReset(false); return }
+      if (!session) {
+        // No readable session. If we're offline but have a cached profile, keep
+        // the user in rather than forcing a login they can't complete offline.
+        const cached = readCachedProfile()
+        if (cached && looksOffline()) { setProfile(cached); setMustReset(false); return }
+        setProfile(null); setMustReset(false); return
+      }
       // Accounts created by an admin with a temporary password must choose
       // their own password before using the app.
       setMustReset(session.user.user_metadata?.must_reset === true)
-      const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      setProfile(data as Profile)
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
+      if (data && !error) { setProfile(data as Profile); cacheProfile(data as Profile); return }
+      // Fetch failed. Offline/network → keep the cached profile (don't log out).
+      const cached = readCachedProfile()
+      if (cached && looksOffline(error?.message)) { setProfile(cached); return }
+      setProfile((data as Profile) ?? null)
     }
     load()
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      if (!s) setProfile(null); else load()
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      // Only a genuine sign-out logs the user out. Transient null sessions (e.g. a
+      // failed token refresh while offline) must NOT drop a logged-in inspector.
+      if (event === 'SIGNED_OUT') { setProfile(null); clearCachedProfile() }
+      else if (s) load()
     })
     return () => sub.subscription.unsubscribe()
   }, [isPublicReport])
