@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { useI18n } from './lib/i18n'
+import { useOnline } from './lib/connectivity'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import NewInspection from './pages/NewInspection'
@@ -40,6 +41,7 @@ export default function App() {
   const [wide, setWide] = useState(window.innerWidth >= 900)
   const [pendingCount, setPendingCount] = useState(0)
   const { lang, setLang, t } = useI18n()
+  const online = useOnline()
   const nav = useNavigate()
   const location = useLocation()
   // Recipients of an emailed report link are not logged-in NITRA staff, so this
@@ -135,7 +137,15 @@ export default function App() {
     <>
       <header className="topbar">
         <Link to="/"><img src="/logo-white.png" alt="NITRA" /></Link>
-        <span className="title">{t('appTitle')}</span>
+        <span className="title" style={{ flex: '0 0 auto' }}>{t('appTitle')}</span>
+        <span
+          className={online ? 'netpill on' : 'netpill off'}
+          title={online ? t('online') : t('offline')}
+          aria-live="polite"
+        >
+          <span className="dot" />{online ? t('online') : t('offline')}
+        </span>
+        <span style={{ flex: 1 }} />
         <button className="topbar-burger" aria-label="Menu" onClick={() => setMenuOpen(o => !o)}>☰</button>
         <nav className={menuOpen ? 'topbar-nav open' : 'topbar-nav'} onClick={() => setMenuOpen(false)}>
           {profile.role === 'admin' && !showSidebar && (

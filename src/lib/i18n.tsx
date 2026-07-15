@@ -157,6 +157,8 @@ const STR = {
   remaining:      { en: 'Remaining',                  zh: '待检' },
   checkingFor:    { en: 'Checking for',               zh: '检查项目' },
   pdfReport:      { en: '📄 PDF Report',               zh: '📄 PDF报告' },
+  online:         { en: 'Online',                     zh: '在线' },
+  offline:        { en: 'Offline',                    zh: '离线' },
 } satisfies Record<string, Bi>
 
 type Key = keyof typeof STR
