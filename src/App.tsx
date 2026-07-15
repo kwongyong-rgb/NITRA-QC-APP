@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-r
 import { supabase } from './lib/supabase'
 import { useI18n } from './lib/i18n'
 import { useOnline } from './lib/connectivity'
+import { warmRefCache } from './lib/refCache'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import NewInspection from './pages/NewInspection'
@@ -98,6 +99,11 @@ export default function App() {
     window.addEventListener('resize', onR)
     return () => window.removeEventListener('resize', onR)
   }, [])
+
+  // Warm the offline reference cache (SKU list + sampling settings) whenever we're
+  // logged in and online — so offline screens have the data no matter which screen
+  // was opened first.
+  useEffect(() => { if (online && profile) void warmRefCache() }, [online, profile])
 
   // Sidebar badge: how many items await approval (admins, refreshed per navigation)
   useEffect(() => {
