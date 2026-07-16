@@ -161,6 +161,8 @@ const STR = {
   offline:        { en: 'Offline',                    zh: '离线' },
   offlineSaved:   { en: 'You’re offline — changes are saved on this device and will sync when the connection is back.', zh: '您已离线——更改已保存在本设备，恢复联网后将自动同步。' },
   offlineCantSubmit: { en: 'You’re offline. Your work is saved on this device — reconnect to submit for approval.', zh: '您已离线。工作已保存在本设备——请恢复联网后再提交审批。' },
+  notSyncedYet:   { en: 'Not synced yet — this inspection was created offline and is saved on this device. It will upload automatically when you’re back online.', zh: '尚未同步——此检验为离线创建，已保存在本设备。恢复联网后将自动上传。' },
+  sampleSettingsMissing: { en: 'Sample-size settings aren’t available yet — connect once so they load, then you can start inspections offline.', zh: '抽样设置尚未加载——请先联网一次以加载，之后即可离线开始检验。' },
 } satisfies Record<string, Bi>
 
 type Key = keyof typeof STR

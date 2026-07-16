@@ -6,6 +6,7 @@ import { sampleSizes, type SamplingSettings } from '../lib/rules'
 import type { Sku } from '../lib/standard'
 import type { Profile } from '../App'
 import { cacheGet, cacheSet } from '../lib/refCache'
+import { savePendingInspection } from '../lib/offlineSync'
 
 export default function NewInspection({ profile }: { profile: Profile }) {
   const { t } = useI18n()
@@ -69,15 +70,33 @@ export default function NewInspection({ profile }: { profile: Profile }) {
 
   const start = async () => {
     setBusy(true)
+    // Client-minted id so an offline-created inspection carries a stable id that
+    // inserts cleanly on sync (verified against the live INSERT RLS).
+    const id = (globalThis.crypto?.randomUUID?.()) || `off-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const now = new Date().toISOString()
+    const emptyForm = { results: {}, extra_results: {}, meas_results: {}, meas_extra_results: {}, pallet: {}, na_overrides: {} }
     const { data, error } = await supabase.from('inspections').insert({
-      part_no: partNo, po_no: po, batch, lot_size: lot,
+      id, part_no: partNo, po_no: po, batch, lot_size: lot,
       app_sample: sizes.app, fun_sample: sizes.fun,
-      inspector_id: profile.id,
-      form_data: { results: {}, extra_results: {}, meas_results: {}, meas_extra_results: {}, pallet: {}, na_overrides: {} },
+      inspector_id: profile.id, form_data: emptyForm,
     }).select('id').single()
+    if (data && !error) { setBusy(false); nav(`/inspection/${data.id}`); return }
+    // Offline / network failure → create the inspection on the device and queue it.
+    const offline = (typeof navigator !== 'undefined' && !navigator.onLine) ||
+      /load failed|failed to fetch|network/i.test(error?.message || '')
+    if (offline) {
+      await savePendingInspection({
+        id, part_no: partNo, po_no: po, batch, lot_size: lot,
+        app_sample: sizes.app, fun_sample: sizes.fun, inspector_id: profile.id,
+        status: 'draft', form_data: emptyForm, summary: {}, pallet_data: {},
+        created_at: now, updated_at: now, pendingSince: now,
+      })
+      setBusy(false)
+      nav(`/inspection/${id}`)
+      return
+    }
     setBusy(false)
-    if (error) { alert('Could not start inspection / 无法开始检验:\n\n' + error.message); return }
-    if (data) nav(`/inspection/${data.id}`)
+    alert('Could not start inspection / 无法开始检验:\n\n' + (error?.message || 'Unknown error'))
   }
 
   return (
@@ -138,8 +157,11 @@ export default function NewInspection({ profile }: { profile: Profile }) {
             <div style={{ fontSize:34, fontFamily:'var(--display)', fontWeight:700, color:'var(--navy)' }}>{sizes.fun}</div>
           </div>
         </div>
+        {!samp && (
+          <div className="banner warn" style={{ marginTop:12, fontSize:13 }}>{t('sampleSettingsMissing')}</div>
+        )}
         <button className="btn" style={{ width:'100%', marginTop:16 }}
-          disabled={!partNo || !lot || busy} onClick={start}>
+          disabled={!partNo || !lot || !samp || busy} onClick={start}>
           {t('start')}
         </button>
       </div>

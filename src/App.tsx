@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase'
 import { useI18n } from './lib/i18n'
 import { useOnline } from './lib/connectivity'
 import { warmRefCache } from './lib/refCache'
+import { syncPendingInspections } from './lib/offlineSync'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import NewInspection from './pages/NewInspection'
@@ -104,6 +105,11 @@ export default function App() {
   // logged in and online — so offline screens have the data no matter which screen
   // was opened first.
   useEffect(() => { if (online && profile) void warmRefCache() }, [online, profile])
+
+  // Push any offline-created inspections to the server whenever we're logged in and
+  // online (on load and the moment connectivity returns). Scoped to this user; the
+  // currently-open inspection syncs itself from its own screen.
+  useEffect(() => { if (online && profile) void syncPendingInspections(profile.id) }, [online, profile])
 
   // Sidebar badge: how many items await approval (admins, refreshed per navigation)
   useEffect(() => {

@@ -14,6 +14,9 @@ import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
 import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
+import { cacheGet } from '../lib/refCache'
+import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
+import { useOnline } from '../lib/connectivity'
 import SharedPosCard from '../components/SharedPosCard'
 
 // A save/load failure caused by being offline (vs a real server error). We treat
@@ -101,10 +104,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const { id } = useParams()
   const nav = useNavigate()
   const { t, bi, lang } = useI18n()
+  const online = useOnline()
   const [insp, setInsp] = useState<Insp|null>(null)
   const [sku, setSku] = useState<Sku|null>(null)
   const [loadErr, setLoadErr] = useState('')
   const [offlineNote, setOfflineNote] = useState(false)
+  const [isPending, setIsPending] = useState(false)  // offline-created, not yet synced to the server
   const loadedOnceRef = useRef(false)  // true after one full successful load — lets offline reloads keep the working screen
   const [defects, setDefects] = useState<Defect[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -133,27 +138,46 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const load = useCallback(async () => {
     const draft = await getLocalDraft('inspection', id!)
     const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
-    if (ie || !i) {
-      // Offline reload after we already had the inspection open: keep the working
-      // screen (and the user's optimistic edits) instead of a dead-end error.
-      if (loadedOnceRef.current && isNetworkErr(ie)) { setOfflineNote(true); return }
-      setLoadErr(ie?.message || 'Inspection not found'); return
+    let row: Insp
+    let pending = false
+    if (i && !ie) {
+      row = i as Insp
+    } else {
+      // Not on the server — is this an offline-created inspection on this device?
+      const pend = await getPendingInspection(id!)
+      if (!pend) {
+        if (loadedOnceRef.current && isNetworkErr(ie)) { setOfflineNote(true); return }
+        setLoadErr(ie?.message || 'Inspection not found'); return
+      }
+      // Already loaded this pending inspection? Don't overwrite the live optimistic
+      // edits with the queued copy (which can lag a render behind) — the trailing
+      // load() after each edit would otherwise revert the tap.
+      if (loadedOnceRef.current) { setIsPending(true); return }
+      row = pend as unknown as Insp
+      pending = true
     }
+    setIsPending(pending)
     const fi: Insp = {
-      ...(i as Insp),
-      form_data: { ...emptyFormData(), na_overrides: {}, ...(i as Insp).form_data },
-      pallet_data: (i as Insp).pallet_data || {},
-      summary: (i as Insp).summary || {},
+      ...row,
+      form_data: { ...emptyFormData(), na_overrides: {}, ...row.form_data },
+      pallet_data: row.pallet_data || {},
+      summary: row.summary || {},
     }
     setInsp(fi)
-    const { data: s, error: se } = await supabase.from('skus').select('*').eq('part_no', i.part_no).single()
-    if (se || !s) {
-      if (loadedOnceRef.current && isNetworkErr(se)) { setOfflineNote(true); return }
-      setLoadErr(`SKU "${i.part_no}" not found` + (se ? `: ${se.message}` : '')); return
+    // SKU: live first, then the offline reference cache.
+    const { data: s, error: se } = await supabase.from('skus').select('*').eq('part_no', row.part_no).single()
+    let skuRow: Sku | null = (s && !se) ? (s as Sku) : null
+    if (!skuRow) {
+      const cached = await cacheGet<Sku[]>('skus')
+      skuRow = cached?.find(x => x.part_no === row.part_no) || null
     }
-    setSku(s as Sku)
+    if (!skuRow) {
+      if (loadedOnceRef.current && isNetworkErr(se)) { setOfflineNote(true); return }
+      setLoadErr(`SKU "${row.part_no}" not found` + (se ? `: ${se.message}` : '')); return
+    }
+    setSku(skuRow)
     loadedOnceRef.current = true  // one full load succeeded — offline reloads may now keep the screen
-    setOfflineNote(false)         // we're clearly online again
+    if (!pending) setOfflineNote(false)  // a live server load means we're online
     const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
     setDefects((d as Defect[]) || [])
     const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
@@ -173,7 +197,28 @@ export default function Inspection({ profile }: { profile: Profile }) {
   useEffect(() => {
     if (!insp?.id) return
     saveLocalDraft('inspection', insp.id, { form_data: insp.form_data, summary: insp.summary, pallet_data: insp.pallet_data }, (insp as { updated_at?: string }).updated_at ?? null)
-  }, [insp])
+    // If this is an offline-created (pending) inspection, keep its queued copy
+    // current so the sync-on-reconnect pushes the latest results. Self-guards.
+    if (isPending) void updatePendingInspection(insp)
+  }, [insp, isPending])
+
+  // Tell the batch sync which inspection is open so it doesn't race this screen.
+  useEffect(() => { setOpenInspection(id || null); return () => setOpenInspection(null) }, [id])
+
+  // When this is a pending (offline-created) inspection and connectivity returns,
+  // sync IT from here — capturing the latest edits — then drop the pending state so
+  // further saves go straight to the now-live server row.
+  const selfSyncedRef = useRef(false)
+  useEffect(() => {
+    if (!isPending) { selfSyncedRef.current = false; return }
+    if (online && insp && sku && !selfSyncedRef.current) {
+      selfSyncedRef.current = true
+      syncOnePending(insp, profile.id).then(ok => {
+        if (ok) { setIsPending(false); setOfflineNote(false) }
+        else selfSyncedRef.current = false   // retry on the next change/reconnect
+      })
+    }
+  }, [online, isPending, insp, sku, profile.id])
 
   const applyRestore = async () => {
     if (!insp || !restore) return
@@ -372,6 +417,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const saveFd = async (fd: Insp['form_data']) => {
     if (!insp) return
     setInsp({ ...insp, form_data: fd })
+    // Offline-created and not yet on the server: the local mirror + self-sync own
+    // this write. Skipping the (doomed) server update here avoids a 0-row update
+    // racing the reconnect sync. Once synced, isPending clears and saves resume.
+    if (isPending) return
     const { error } = await supabase.from('inspections').update({ form_data: fd, updated_at: new Date().toISOString() }).eq('id', insp.id)
     if (error) {
       // Offline: keep the optimistic edit (already in state + the local draft) and
@@ -816,6 +865,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   return (
     <div className="page" style={{ paddingBottom: inspectorEditable ? 84 : undefined }}>
+      {isPending && (
+        <div className="banner warn" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>⏳</span><span>{t('notSyncedYet')}</span>
+        </div>
+      )}
       {offlineNote && (
         <div className="banner warn" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>📴</span><span>{t('offlineSaved')}</span>
