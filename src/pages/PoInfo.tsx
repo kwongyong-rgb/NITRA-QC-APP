@@ -5,6 +5,8 @@ import type { Profile } from '../App'
 import * as XLSX from 'xlsx'
 import { sumLoadedByPart } from '../lib/poStatus'
 import PartPicker from '../components/PartPicker'
+import { isOffline } from '../lib/connectivity'
+import { cacheGet, cacheSet, poInfoKey, type CachedPoInfo } from '../lib/refCache'
 
 // PO master info + ordered items for the PO detail page (Phase 1).
 // - Info card: customer / date / destination, editable by admin.
@@ -32,27 +34,49 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
   const fileRef = useRef<HTMLInputElement>(null)
   const isApprover = profile.role === 'admin'
 
+  // Read-through: try live → cache on success → fall back to the on-device copy.
+  // NOTE the offline trap this avoids: the old code called setRow(null) whenever
+  // the query came back empty, so going offline actively WIPED the PO info and
+  // items off the screen. The cache fallback has to intercept before that.
+  // (No banner here — PoHub shows one banner for the whole PO page.)
   const load = useCallback(async () => {
     setErr('')
-    // PO master row — create lazily if missing (covers POs typed before Phase 1).
-    let { data: p } = await supabase.from('pos').select('*').eq('po_no', po).maybeSingle()
-    if (!p && isApprover && po.trim() !== '') {
-      const ins = await supabase.from('pos').insert({ po_no: po }).select('*').single()
-      if (!ins.error) p = ins.data
-    }
-    setRow((p as PoRow) || null)
-    if (p) {
-      const { data: it } = await supabase.from('po_items').select('id,part_no,qty_ordered').eq('po_id', (p as PoRow).id).order('part_no')
-      setItems((it as Item[]) || [])
-    } else setItems([])
-    // Loaded quantities: sum confirmed container-loading contents for this PO.
-    const { data: conts } = await supabase.from('container_loadings').select('data').eq('po_no', po)
-    setLoadedQty(sumLoadedByPart((conts as { data: unknown }[]) || []))
-  }, [po, isApprover])
+    const key = poInfoKey(profile.id, po)
+    try {
+      // PO master row — create lazily if missing (covers POs typed before Phase 1).
+      // v87: never lazily create while offline. Offline the read below returns
+      // nothing because there's no network, NOT because the PO is missing — so
+      // without this guard, merely opening a PO page offline would insert a
+      // phantom pos row. (The same guard lives in poStatus.getOrCreatePoId.)
+      const { data: pData, error: pErr } = await supabase.from('pos').select('*').eq('po_no', po).maybeSingle()
+      if (pErr) throw new Error(pErr.message)
+      let p = pData
+      if (!p && isApprover && po.trim() !== '' && !isOffline()) {
+        const ins = await supabase.from('pos').insert({ po_no: po }).select('*').single()
+        if (!ins.error) p = ins.data
+      }
+      let itemList: Item[] = []
+      if (p) {
+        const { data: it, error: iErr } = await supabase.from('po_items').select('id,part_no,qty_ordered').eq('po_id', (p as PoRow).id).order('part_no')
+        if (iErr) throw new Error(iErr.message)
+        itemList = (it as Item[]) || []
+      }
+      // Loaded quantities: sum confirmed container-loading contents for this PO.
+      const { data: conts, error: cErr } = await supabase.from('container_loadings').select('data').eq('po_no', po)
+      if (cErr) throw new Error(cErr.message)
+      const qty = sumLoadedByPart((conts as { data: unknown }[]) || [])
+      setRow((p as PoRow) || null); setItems(itemList); setLoadedQty(qty)
+      void cacheSet(key, { row: (p as PoRow) || null, items: itemList, loadedQty: qty } satisfies CachedPoInfo)
+      return
+    } catch { /* offline / fetch failed — fall through to the cache */ }
+    const cached = await cacheGet<CachedPoInfo>(key)
+    if (cached) { setRow(cached.row); setItems(cached.items); setLoadedQty(cached.loadedQty) }
+  }, [po, isApprover, profile.id])
   useEffect(() => { load() }, [load, refreshKey])
 
   const saveInfo = async () => {
     if (!row || !editInfo) return
+    if (isOffline()) { setErr(t('offlinePoSetup')); return }
     setBusy(true); setErr('')
     const { error } = await supabase.from('pos').update({
       customer_name: editInfo.customer_name.trim() || null,
@@ -71,6 +95,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     const qty = parseInt(addItem.qty, 10)
     if (!part) { setErr(t('partRequired')); return }
     if (!Number.isFinite(qty) || qty < 0) { setErr('Quantity must be a number.'); return }
+    if (isOffline()) { setErr(t('offlinePoSetup')); return }
     setBusy(true); setErr('')
     const { error } = await supabase.from('po_items').upsert({ po_id: row.id, part_no: part, qty_ordered: qty }, { onConflict: 'po_id,part_no' })
     setBusy(false)
@@ -81,12 +106,14 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
   const updateQty = async (it: Item, v: string) => {
     const qty = parseInt(v, 10)
     if (!Number.isFinite(qty) || qty < 0 || !it.id) return
+    if (isOffline()) { setErr(t('offlinePoSetup')); return }
     const { error } = await supabase.from('po_items').update({ qty_ordered: qty }).eq('id', it.id)
     if (error) setErr(error.message); else load()
   }
 
   const removeItem = async (it: Item) => {
     if (!it.id) return
+    if (isOffline()) { setErr(t('offlinePoSetup')); return }
     if (!confirm(`Remove ${it.part_no} from this PO's order list?\n\n(Existing inspections and reports are NOT affected.)`)) return
     const { error } = await supabase.from('po_items').delete().eq('id', it.id)
     if (error) setErr(error.message); else load()
@@ -141,6 +168,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     if (!row || !review) return
     const good = review.filter(r => r.part_no.trim() && Number.isFinite(parseInt(r.qty, 10)))
     if (!good.length) { setErr('No valid rows to save. Fix the highlighted rows first.'); return }
+    if (isOffline()) { setErr(t('offlinePoSetup')); return }
     setBusy(true); setErr('')
     const payload = good.map(r => ({ po_id: row.id, part_no: r.part_no.trim(), qty_ordered: parseInt(r.qty, 10) }))
     const { error } = await supabase.from('po_items').upsert(payload, { onConflict: 'po_id,part_no' })

@@ -24,6 +24,20 @@ const PING_URL = `${SUPABASE_URL}/auth/v1/health`
 const RECHECK_MS = 30_000     // re-confirm periodically (catches silent drops)
 const PING_TIMEOUT_MS = 5_000 // a hung request counts as offline
 
+// A synchronous, conservative "are we definitely offline?" check.
+//
+// Use this ONLY as a guard that BLOCKS a write (see getOrCreatePoId / PoInfo's
+// lazy PO-create). navigator.onLine is unreliable for the POSITIVE case — the
+// reason pingReachable() exists — but its NEGATIVE is trustworthy: false really
+// does mean no network. So as a block-a-write guard it cannot produce a false
+// negative. The remaining case (onLine true, uplink dead) is harmless: the write
+// simply fails with a network error and nothing is created.
+//
+// Do NOT use this to decide what to render — use the useOnline() hook for that.
+export function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
 // Confirm the server is actually reachable. Never throws — resolves true/false.
 export async function pingReachable(): Promise<boolean> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return false

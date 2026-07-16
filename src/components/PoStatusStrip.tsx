@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useI18n, type Bi } from '../lib/i18n'
 import { computeStages, getOrCreatePoId, type PoStages, type StageResult, type StageUnit } from '../lib/poStatus'
+import { cacheGet, cacheSet, poStagesKey } from '../lib/refCache'
 import type { Profile } from '../App'
 
 // The PO command center's status strip: PO Ordered Items ▸ Inspection ▸ Loading,
@@ -38,25 +39,38 @@ export default function PoStatusStrip({ po, profile, refreshKey }: { po: string;
   const { bi } = useI18n()
   const [stages, setStages] = useState<PoStages | null>(null)
 
+  // Read-through: try live → cache on success → fall back to the on-device copy.
+  // (No banner here — PoHub shows one banner for the whole PO page.)
   const load = useCallback(async () => {
-    const poId = await getOrCreatePoId(po, profile.role === 'admin')
-    const linkRes = await supabase.from('inspection_pos').select('inspection_id').eq('po_no', po)
-    const inspIds = ((linkRes.data as { inspection_id: string }[]) || []).map(r => r.inspection_id)
-    const [itemsRes, inspRes, contRes] = await Promise.all([
-      poId
-        ? supabase.from('po_items').select('part_no,qty_ordered').eq('po_id', poId)
-        : Promise.resolve({ data: [] as { part_no: string; qty_ordered: number }[] }),
-      inspIds.length
-        ? supabase.from('inspections').select('status,part_no').in('id', inspIds)
-        : Promise.resolve({ data: [] as { status: string; part_no: string | null }[] }),
-      supabase.from('container_loadings').select('insp_status,data').eq('po_no', po),
-    ])
-    setStages(computeStages({
-      items: (itemsRes.data as { part_no: string; qty_ordered: number }[]) || [],
-      insps: (inspRes.data as { status: string; part_no: string | null }[]) || [],
-      conts: (contRes.data as { insp_status: string; data: unknown }[]) || [],
-    }))
-  }, [po, profile.role])
+    const key = poStagesKey(profile.id, po)
+    try {
+      // getOrCreatePoId self-guards against the offline lazy-create (v87).
+      const poId = await getOrCreatePoId(po, profile.role === 'admin')
+      const linkRes = await supabase.from('inspection_pos').select('inspection_id').eq('po_no', po)
+      if (linkRes.error) throw new Error(linkRes.error.message)
+      const inspIds = ((linkRes.data as { inspection_id: string }[]) || []).map(r => r.inspection_id)
+      const [itemsRes, inspRes, contRes] = await Promise.all([
+        poId
+          ? supabase.from('po_items').select('part_no,qty_ordered').eq('po_id', poId)
+          : Promise.resolve({ data: [] as { part_no: string; qty_ordered: number }[], error: null }),
+        inspIds.length
+          ? supabase.from('inspections').select('status,part_no').in('id', inspIds)
+          : Promise.resolve({ data: [] as { status: string; part_no: string | null }[], error: null }),
+        supabase.from('container_loadings').select('insp_status,data').eq('po_no', po),
+      ])
+      if (itemsRes.error || inspRes.error || contRes.error) throw new Error('stage fetch failed')
+      const next = computeStages({
+        items: (itemsRes.data as { part_no: string; qty_ordered: number }[]) || [],
+        insps: (inspRes.data as { status: string; part_no: string | null }[]) || [],
+        conts: (contRes.data as { insp_status: string; data: unknown }[]) || [],
+      })
+      setStages(next)
+      void cacheSet(key, next)
+      return
+    } catch { /* offline / fetch failed — fall through to the cache */ }
+    const cached = await cacheGet<PoStages>(key)
+    if (cached) setStages(cached)
+  }, [po, profile.role, profile.id])
 
   useEffect(() => { load() }, [load, refreshKey])
 

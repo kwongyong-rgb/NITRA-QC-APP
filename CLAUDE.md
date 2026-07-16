@@ -8,26 +8,32 @@
 
 ## 0. How the human (Kwong) works — READ FIRST
 
-Kwong is the Admin at NITRA Wheels and is **non-technical**. He deploys everything by copy-paste. You (the AI) write **all** code, SQL, and shell commands. Concretely:
+Kwong is the Admin at NITRA Wheels and is **non-technical**. You (the AI) write **all** code, SQL, and shell commands. Concretely:
 
-- **One verifiable batch at a time:** propose → he approves → you build → he deploys → he tests, before the next batch. Do not stack multiple risky changes.
-- **All SQL and PowerShell must be inline in chat, copy-paste ready.** Pre-chunk long SQL as "Part 1 of N" — the Supabase SQL Editor silently truncates very long scripts.
-- **Full-codebase zips only**, named `nitra-qc-app-vNN-FULL.zip`. Never ship partial patches. Bump `NN` every build and add a `CHANGES_vNN.md`.
-- **Build gate before every zip (all three must pass):**
+- **One verifiable batch at a time:** propose → he approves → you build → you run the build gate and show him it passes → he commits/pushes and tests, before the next batch. Do not stack multiple risky changes.
+- **You edit the repo files directly.** The development environment is Claude Code, working in the local repo at `C:\Users\Razer\Documents\GitHub\NITRA-QC-APP`. Kwong commits and pushes himself with GitHub Desktop. **Never ship partial patches** — a batch must leave the repo in a working, build-gate-passing state.
+- **Still bump the version and add a `CHANGES_vNN.md` every batch.** The version history (§7) and the whole handoff narrative depend on it. Only the zip is gone, not the versioning.
+- **All SQL and PowerShell must be inline in chat, copy-paste ready.** Pre-chunk long SQL as "Part 1 of N" — the Supabase SQL Editor silently truncates very long scripts. Kwong pastes these by hand; do not assume you can run them.
+- **Build gate — YOU run it, before handing the batch over (all three must pass):**
   - `npx tsc -b` clean
   - `npx vite build` OK
   - `npx eslint src | grep -c rules-of-hooks` must be `0`
+  Show him the passing output before he commits.
   (There are some *pre-existing* non-rules-of-hooks lint errors — `set-state-in-effect`, `no-explicit-any` — that are tolerated. Only `rules-of-hooks = 0` is the hard gate.)
 - **Bilingual:** staff UI is EN / 简体中文 (`zh`); customer-facing report output is EN / DE / FR-CA.
 - **Flag uncertainty and open questions honestly.** Never silently resolve an ambiguous decision.
-- **Security review + verification queries for any migration touching RLS/RPCs**, presented for him to read BEFORE he runs it.
+- **Security review + verification queries for any migration touching RLS/RPCs**, in **plain English**, presented for him to read BEFORE he runs it. He is non-technical — explain what the SQL does and what could go wrong, not just what it says.
+- **Always remind him to delete and reinstall the PWA** on the iPad/phone after every app deploy. See Pipeline A.
 
 ### Deploy pipelines
-- **Pipeline A (app):** extract zip into repo → GitHub Desktop commit + push → Vercel auto-builds → **on the iPad/phone, DELETE the PWA from the home screen and REINSTALL it.** Clearing cache is NOT enough — a stale service worker will keep serving old JS. This is the #1 "my fix didn't work" cause.
+- **Pipeline A (app):** you edit the repo files directly → you run the build gate → GitHub Desktop commit + push → Vercel auto-builds → **on the iPad/phone, DELETE the PWA from the home screen and REINSTALL it.** Clearing cache is NOT enough — a stale service worker will keep serving old JS. This is the #1 "my fix didn't work" cause.
 - **Pipeline B (edge functions):** PowerShell, e.g.
   `supabase functions deploy <name> --project-ref nzzktgstpifevaqyapyw --no-verify-jwt`
   (`--no-verify-jwt` is used for the public report functions: `interactive-report`, `po-report`, `container-report`, `send-*`).
 - **Migrations:** pasted into the Supabase SQL Editor by hand. On the "Potential issue detected — creates a table without RLS" popup, click **"Run without RLS"** (NOT "Run and enable RLS", which enables RLS with no policies and locks staff out); a following migration part enables RLS + policies.
+
+### Workflow history
+Through **v86**, development ran in a chat tool with no repo access: every batch shipped as a full-codebase zip (`nitra-qc-app-vNN-FULL.zip`) that Kwong extracted into the repo by hand, and the build gate was run on his machine. From **v87 onward** development moved to **Claude Code**, which edits the repo directly and runs the build gate itself. The zip step is retired. Everything else about how Kwong works is unchanged — one batch at a time, inline copy-paste SQL with a plain-English security review, and he still owns the commit, the push, and the testing.
 
 ---
 
@@ -325,7 +331,9 @@ This is the most actively-developed area. It is being built in **staged, indepen
 ### The four client-side modules (all in `src/lib/`, all fail-safe: any error → null/no-op, never breaks the live flow)
 1. **`connectivity.ts`** — `useOnline()` hook + `pingReachable()`. Treats `navigator.onLine === false` as an immediate offline signal, but confirms the *positive* case with a lightweight `mode:'no-cors'` reachability ping to `${VITE_SUPABASE_URL}/auth/v1/health` (5s timeout, cache-buster) so "connected but no internet" warehouse Wi-Fi reads correctly. Re-checks every 30s, on the browser online/offline events, and on tab-visibility. Drives the **Online/在线 · Offline/离线 header pill** in `App.tsx`.
 2. **`localDraft.ts`** (B6 Stage 1, v77) — IndexedDB (`nitra-qc` DB, `drafts` store) snapshot of the currently-open wheel/container inspection (`form_data`/`summary`/`pallet_data`), written on every change alongside the normal Supabase write. Pure insurance; restores on reopen if the local snapshot differs from the server (the "Unsaved changes found on this device" prompt). This is the base other stages build on.
-3. **`refCache.ts`** (v83/v85) — IndexedDB (`nitra-qc-cache` DB, `ref` store) read-through cache for reference data. `cacheGet`/`cacheSet`, plus **`warmRefCache()`** which proactively downloads + stores the full active SKU master (`skus`), the 4-col subset (`skus_lite`), and the sampling settings (`sampling`) whenever logged-in-and-online. Called from `App.tsx` on an `[online, profile]` effect. This is why the New Inspection form + PartPicker work offline. (v83 cached lazily per-screen and that was insufficient — v85 added proactive warming; do not regress to lazy-only.)
+3. **`refCache.ts`** (v83/v85, extended v87) — IndexedDB (`nitra-qc-cache` DB, `ref` store) read-through cache for reference data. `cacheGet`/`cacheSet`/`cacheGetWithMeta` (v87: also returns the stored `savedAt`, so screens can show how old cached data is instead of passing it off as live), plus **`warmRefCache()`** which proactively downloads + stores the full active SKU master (`skus`), the 4-col subset (`skus_lite`), and the sampling settings (`sampling`) whenever logged-in-and-online. Called from `App.tsx` on an `[online, profile]` effect. This is why the New Inspection form + PartPicker work offline. (v83 cached lazily per-screen and that was insufficient — v85 added proactive warming; do not regress to lazy-only.)
+   - **v87 added `warmPoCache(userId)`** in the same module + the same `[online, profile]` trigger: five bulk queries (`pos`, `inspections`, `container_loadings`, `po_items`, `inspection_pos`) fanned out to populate the PO list cache AND every PO's detail cache in one pass. Bulk, not per-PO, deliberately — warming only the list would repeat the exact v85 trap (an inspector who warmed the list at the office still finds an empty PO *detail* page onsite).
+   - **PO cache keys are namespaced by user id** (`po_list:<uid>`, `po_hub:<uid>:<po>`, `po_info:<uid>:<po>`, `po_stages:<uid>:<po>`) — see the privacy note in §7. Do NOT remove the namespacing.
 4. **`offlineSync.ts`** (v86) — offline inspection **creation + sync** (the write side). IndexedDB (`nitra-qc-pending` DB, `inspections` store) of pending offline-created inspections (full rows). Key exports:
    - `savePendingInspection` / `getPendingInspection` / `getAllPendingInspections` / `updatePendingInspection` (self-guards: no-op if id isn't pending) / `pendingCount`.
    - `setOpenInspection(id|null)` — the Inspection screen registers the open inspection so the batch sync skips it (no two-writer race).
@@ -415,8 +423,11 @@ This is the most actively-developed area. It is being built in **staged, indepen
 - **Connectivity: reachability ping, not just `navigator.onLine`** — warehouse Wi-Fi is often "connected" with no working uplink.
 - **Offline caching is proactive (`warmRefCache`), not lazy** — lazy per-screen caching (v83) failed because users never opened the New Inspection screen online first (v85 fix).
 - **`saveFd` skips server writes while `isPending`** and the open screen owns its own sync — to close the reconnect two-writer race.
+- **PO offline cache is namespaced per user (v87) — this is a PRIVACY control, not a nicety.** The SKU/settings cache needs no namespacing (identical for everyone), but PO data is scoped per user by RLS: an inspector only sees their OWN inspections/container loadings. IndexedDB survives sign-out, so on a shared iPad an un-namespaced cache would show user A's POs to user B. Namespacing makes a different user get a cache MISS rather than someone else's data — it fails closed. Do not "simplify" these keys.
+- **`isOffline()` (v87, `connectivity.ts`) is for BLOCKING WRITES ONLY — never for deciding what to render.** It uses `navigator.onLine === false`, which is unreliable for the positive case (the whole reason `pingReachable()` exists) but trustworthy as a negative, so as a block-a-write guard it cannot produce a false negative. The residual case (onLine true, dead uplink) is harmless: the write just fails with a network error and nothing is created. For rendering, use the `useOnline()` hook.
+- **There are TWO lazy PO-create paths, and both are guarded (v87).** `PoInfo.load`'s inline insert is the well-known one; the second is `getOrCreatePoId()` in `poStatus.ts`, called by `PoStatusStrip` (which renders on EVERY admin PO-page view) and `CustomerAccessCard`. Offline, the "does this PO exist?" read returns nothing — not because the PO is missing, but because there's no network — so without the guard, merely OPENING a PO page offline would insert a phantom `pos` row. If you add a third caller of `getOrCreatePoId`, it inherits the guard; if you write a new inline `pos` insert, guard it yourself.
 
-**Version history (all built, verified, deployed unless noted):** v74–75 PO status strip; v76 disposition vocabulary + verdict-first report; v77 B6 Stage 1 offline safety net (`localDraft`); v78 four live-use bug fixes + PO/sidebar translation; v79 findings-vs-outcome fix; v80 shared-SKU inspections (`inspection_pos`); **v81** connectivity pill; **v82** offline edit hardening (no crash on offline All Pass/Fail) + Add-Ordered-Item searchable dropdown; **v83** offline read foundation pt1 (false-logout fix + SKU/settings cache); **v84** fix Add-Ordered-Item dropdown clipped inside modal; **v85** proactive `warmRefCache`; **v86** offline inspection creation + auto-sync (this is the newest).
+**Version history (all built, verified, deployed unless noted):** v74–75 PO status strip; v76 disposition vocabulary + verdict-first report; v77 B6 Stage 1 offline safety net (`localDraft`); v78 four live-use bug fixes + PO/sidebar translation; v79 findings-vs-outcome fix; v80 shared-SKU inspections (`inspection_pos`); **v81** connectivity pill; **v82** offline edit hardening (no crash on offline All Pass/Fail) + Add-Ordered-Item searchable dropdown; **v83** offline read foundation pt1 (false-logout fix + SKU/settings cache); **v84** fix Add-Ordered-Item dropdown clipped inside modal; **v85** proactive `warmRefCache`; **v86** offline inspection creation + auto-sync; **v87** PO-page offline caching — read-through + `warmPoCache`, per-user cache namespacing, both lazy-PO-create paths guarded (this is the newest, and the first batch built in Claude Code rather than shipped as a zip).
 
 ---
 
@@ -429,16 +440,17 @@ This is the most actively-developed area. It is being built in **staged, indepen
 
 **Offline (B6) — the staged plan and where it stands:**
 - **Stage 1 — DONE (v77):** local IndexedDB safety net (`localDraft`).
-- **Stage 2 — IN PROGRESS:** connectivity awareness (v81 ✓), reference-data caching (v83/v85 ✓), offline creation of inspections + write-queue/sync (v86 ✓ for **wheel inspections**). **Still to do in Stage 2:**
-  - **PO-page offline caching** (planned **v87**): the PO list (`Home`) and PO detail (`PoHub`/`PoInfo`) are still **empty when navigated to fresh while offline**. Only reference data + the open inspection survive offline today. This touches admin-heavy screens — do it as its own batch with the read-through pattern (try live → cache on success → read cache on failure), guarding `PoInfo`'s lazy PO-create so it doesn't fire offline.
-  - **Offline container-loading creation** (quick follow-up): v86 only did wheel inspections. `ContainerLoading.tsx` + `PoHub.addContainer` need the same client-UUID + pending-store + sync treatment.
-  - **Offline-created inspections aren't listed anywhere until they sync** — reachable only right after creation. A "pending inspections" list (on Home/MyWork, reading the `nitra-qc-pending` store) would fix this.
+- **Stage 2 — IN PROGRESS:** connectivity awareness (v81 ✓), reference-data caching (v83/v85 ✓), offline creation of inspections + write-queue/sync (v86 ✓ for **wheel inspections**), PO-page offline caching (v87 ✓ — this closed the offline READ side; it's also what makes the v86 flow *reachable* onsite, since a blank PO list meant no door into Add SKU → Start Inspection). **Still to do in Stage 2:**
+  - **Offline container-loading creation** (quick follow-up): v86 only did wheel inspections. `ContainerLoading.tsx` + `PoHub.addContainer` need the same client-UUID + pending-store + sync treatment. (v87 made `addContainer` block cleanly offline instead of erroring — that's a stopgap, not the fix.)
+  - **Offline-created inspections aren't listed anywhere until they sync** — reachable only right after creation. v87 did NOT change this: the PO cache holds what the SERVER had, and a pending inspection isn't on the server yet. The fix is to merge the `nitra-qc-pending` store into `Home`/`MyWork`/`PoHub` views. Probably the best next batch — it's the last thing that makes offline work feel like it vanished.
   - **Submit-for-approval requires connectivity** — reconnect + let the pending banner clear first. Possibly queue submits later.
 - **Stage 3 — NOT STARTED:** offline **photos/videos** (local blobs in IndexedDB, uploaded to `qc-photos` on reconnect) + OCR queued until online. This is the next big piece after the read side is complete.
 - **Stage 4 — NOT STARTED:** **sync conflicts.** Rule: queue the local copy, FLAG for review, never silently overwrite. Refined requirement is a **merge/"keep both"** view (photos/defects are additive separate rows; `form_data` is per-wheel so different wheels merge cleanly; only same-field-same-wheel is a true conflict needing a manual pick). Migration 22's server-authoritative `updated_at` + `localDraft`'s stored `serverUpdatedAt` are the foundation for detecting "the server changed while you were offline". The concrete scenario the user cares about most: two users on the same shared SKU — one online marks All Pass, one offline marks All Fail — must flag, not overwrite.
 - **Narrow known residual race** in v86 sync (edit during the reconnect push window) — self-healing via state + `localDraft` + next save; documented in §5. A fuller fix would gate all savers (not just `saveFd`) on `isPending`, or re-push after `isPending` clears.
 
-**Suggested next batch:** `v87` = PO-page offline caching (finishes the offline read side), then Stage 3 (offline photos) or Stage 4 (conflict/merge) per the user's priority — he has repeatedly flagged the two-user shared-SKU clash as the scenario he most wants handled.
+**Suggested next batch (as of v87):** `v88` = surface **pending (offline-created) inspections** in `Home`/`MyWork`/`PoHub` by merging the `nitra-qc-pending` store into those views. It's small, it's the last hole in the offline read side (v87 cached what the SERVER had; pending work is still invisible until it syncs), and it removes the "my offline inspection disappeared" surprise. Then **Stage 3 (offline photos)** — a QC inspection is photo-backed by definition, so offline capture without photos is still half a form, and photos are additive separate rows, which puts them on the no-collision side of the Stage 4 merge design. Then **Stage 4 (conflict/merge)** — Kwong has repeatedly flagged the two-user shared-SKU clash (one online marks All Pass, one offline marks All Fail) as the scenario he most wants handled.
+
+**Repo hygiene worth doing before Stage 4:** regenerate migrations `01`–`03` and `20` from the live DB. Conflict work will lean on the junction table's exact schema and RLS, and right now that DDL exists nowhere in the repo.
 
 ---
 

@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-r
 import { supabase } from './lib/supabase'
 import { useI18n } from './lib/i18n'
 import { useOnline } from './lib/connectivity'
-import { warmRefCache } from './lib/refCache'
+import { warmRefCache, warmPoCache } from './lib/refCache'
 import { syncPendingInspections } from './lib/offlineSync'
 import Login from './pages/Login'
 import Home from './pages/Home'
@@ -105,6 +105,14 @@ export default function App() {
   // logged in and online — so offline screens have the data no matter which screen
   // was opened first.
   useEffect(() => { if (online && profile) void warmRefCache() }, [online, profile])
+
+  // v87 — same idea for the PO list + every PO's detail, keyed to this user. This
+  // is what makes the PO pages survive going offline, which in turn is what makes
+  // the v86 offline-inspection flow reachable onsite (PO page → Add SKU → Start).
+  // Customers never go offline and their dashboard doesn't use this cache.
+  useEffect(() => {
+    if (online && profile && profile.role !== 'customer') void warmPoCache(profile.id)
+  }, [online, profile])
 
   // Push any offline-created inspections to the server whenever we're logged in and
   // online (on load and the moment connectivity returns). Scoped to this user; the

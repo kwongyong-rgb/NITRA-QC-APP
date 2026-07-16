@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { isOffline } from './connectivity'
 
 // ---------------------------------------------------------------------------
 // Shared PO status logic — used by the PO command-center strip (PoStatusStrip)
@@ -65,11 +66,17 @@ export function sumLoadedByPart(conts: { data: unknown }[]): Record<string, numb
 // Read the pos.id for a PO number, lazily creating the master row when an admin
 // opens a PO that predates the pos table (mirrors PoInfo). Conflict-safe: if a
 // concurrent create wins the unique index, we simply re-read.
+//
+// v87 OFFLINE GUARD: never attempt the lazy create while offline. Offline the
+// "does this PO exist?" read above returns nothing — not because the PO is
+// missing, but because there's no network — so without this guard merely OPENING
+// a PO page offline would try to insert a phantom pos row. Callers: PoStatusStrip
+// (every admin PO-page render) and CustomerAccessCard.
 export async function getOrCreatePoId(po: string, canCreate: boolean): Promise<string | null> {
   if (!po || !po.trim()) return null
   const { data } = await supabase.from('pos').select('id').eq('po_no', po).maybeSingle()
   if (data) return (data as { id: string }).id
-  if (!canCreate) return null
+  if (!canCreate || isOffline()) return null
   const ins = await supabase.from('pos').insert({ po_no: po }).select('id').single()
   if (!ins.error && ins.data) return (ins.data as { id: string }).id
   const re = await supabase.from('pos').select('id').eq('po_no', po).maybeSingle()
