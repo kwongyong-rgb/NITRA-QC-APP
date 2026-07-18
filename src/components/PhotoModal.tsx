@@ -1,6 +1,21 @@
 import { useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
+import { isOffline } from '../lib/connectivity'
+import { saveLocalMedia, savePendingPhotoRow, mediaUrlFor, currentUserId, type PendingPhotoRow } from '../lib/offlineMedia'
+
+const fmtMB = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
+// Queue a photos-table row that couldn't be inserted (offline). Returns true if
+// it was queued, so callers can distinguish "saved locally" from "lost".
+async function queuePhotoRow(row: Omit<PendingPhotoRow, 'id' | 'savedAt' | 'inspector_id'>): Promise<boolean> {
+  return savePendingPhotoRow({
+    ...row,
+    inspector_id: await currentUserId(),
+    id: (globalThis.crypto?.randomUUID?.()) || `row-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    savedAt: new Date().toISOString(),
+  })
+}
 
 export const MEAS_UNIT: Record<string, string> = {
   coating_total: 'µm', coating_machined: 'µm',
@@ -30,25 +45,51 @@ interface BaseProps {
 
 // ── Media capture: photo or video ──
 export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string, type: 'photo'|'video') => void; label: string }) {
+  const { t } = useI18n()
   const photoRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
 
+  // B6 Stage 3: the storage path is minted HERE, before any network call, so an
+  // offline capture can be stored under the exact path it will eventually occupy
+  // in the bucket. Sync then uploads to that same path — nothing to reconcile.
   const upload = async (f: File, type: 'photo'|'video') => {
-    setUploading(true)
     const ext = type === 'video' ? 'mp4' : 'jpg'
     const path = `${crypto.randomUUID()}.${ext}`
+
+    // Videos can be hundreds of MB. Offline they sit on the phone until sync, so
+    // let the inspector decide whether this one is worth the space.
+    if (type === 'video' && isOffline()) {
+      if (!confirm(t('offlineVideoWarn').replace('{SIZE}', fmtMB(f.size)))) return
+    }
+
+    const keepLocally = async (): Promise<boolean> => {
+      const ok = await saveLocalMedia(path, f, type)
+      if (!ok) { alert(t('mediaSaveFailed')); return false }
+      onUploaded(path, type)   // caller carries on exactly as if it had uploaded
+      return true
+    }
+
+    setUploading(true)
+    // Known-offline: skip the 3 retries and ~4.5s of pointless backoff.
+    if (isOffline()) { setUploading(false); await keepLocally(); return }
+
     // Weak-WiFi protection: retry up to 3 times with backoff before failing.
     let error: { message: string } | null = null
     for (let attempt = 1; attempt <= 3; attempt++) {
-      const res = await supabase.storage.from('qc-photos').upload(path, f, { contentType: f.type, upsert: true })
-      error = res.error
+      try {
+        const res = await supabase.storage.from('qc-photos').upload(path, f, { contentType: f.type, upsert: true })
+        error = res.error
+      } catch (e) { error = { message: e instanceof Error ? e.message : String(e) } }
       if (!error) break
       if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1500))
     }
     setUploading(false)
-    if (!error) onUploaded(path, type)
-    else alert(`Upload failed after 3 attempts (${error.message}). Check the WiFi and try again — the photo is still on your device.`)
+    if (!error) { onUploaded(path, type); return }
+    // Upload failed (dead uplink, captive portal, weak signal). Rather than the
+    // old "the photo is still on your device" — which wasn't true in any
+    // recoverable sense — actually keep it and upload on reconnect.
+    await keepLocally()
   }
 
   return (
@@ -98,9 +139,6 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
 
   const save = async () => {
     setSaving(true)
-    const { data: existing } = await supabase.from('defects').select('id')
-      .eq('inspection_id', inspectionId).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tab)
-      .limit(1).maybeSingle()
     const fields = {
       inspection_id: inspectionId, piece_no: pieceNo, tab,
       section: tab.toUpperCase(), item_key: itemKey, item_label: itemLabel,
@@ -108,15 +146,42 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
       measurement_value: measValue !== '' ? +measValue : null,
       measurement_unit: unit || 'mm', comment, is_extra_piece: tab === 'extra',
     }
-    let defectId = existing?.id as string|undefined
-    if (defectId) await supabase.from('defects').update(fields).eq('id', defectId)
-    else { const { data } = await supabase.from('defects').insert(fields).select('id').single(); defectId = data?.id }
-    if (defectId && mediaPath) {
-      await supabase.from('photos').insert({
-        inspection_id: inspectionId, defect_id: defectId,
-        storage_path: mediaPath, media_type: mediaType,
-        is_pass_photo: false, item_key: itemKey, piece_no: pieceNo, comment,
-      })
+    // Offline the defect row can't be written — offlineSync.rebuildDefects
+    // recreates it from form_data at sync time, so losing it here is safe.
+    let defectId: string | undefined
+    try {
+      const { data: existing } = await supabase.from('defects').select('id')
+        .eq('inspection_id', inspectionId).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tab)
+        .limit(1).maybeSingle()
+      defectId = existing?.id as string | undefined
+      if (defectId) await supabase.from('defects').update(fields).eq('id', defectId)
+      else { const { data } = await supabase.from('defects').insert(fields).select('id').single(); defectId = data?.id }
+    } catch { /* offline — defect is rebuilt at sync */ }
+
+    if (mediaPath) {
+      let inserted = false
+      // Only attempt the insert if we have a defect to hang it off; otherwise go
+      // straight to the queue (a photo row with a bogus defect_id would be worse).
+      if (defectId) {
+        try {
+          const { error } = await supabase.from('photos').insert({
+            inspection_id: inspectionId, defect_id: defectId,
+            storage_path: mediaPath, media_type: mediaType,
+            is_pass_photo: false, item_key: itemKey, piece_no: pieceNo, comment,
+          })
+          inserted = !error
+        } catch { /* offline — falls through to the queue below */ }
+      }
+      if (!inserted) {
+        // Queue it. defect_id is filled in during sync by matching
+        // item_key + piece_no against the rebuilt defect.
+        const ok = await queuePhotoRow({
+          inspection_id: inspectionId, container_loading_id: null,
+          storage_path: mediaPath, media_type: mediaType, is_pass_photo: false,
+          item_key: itemKey, piece_no: pieceNo, comment,
+        })
+        if (!ok) { setSaving(false); alert(t('mediaSaveFailed')); return }
+      }
     }
     setSaving(false); onDone()
   }
@@ -155,7 +220,7 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
                     : <img src={mediaUrl} style={{ width:'100%', maxHeight:200, objectFit:'cover', borderRadius:8 }} />}
                 </div>
               : <div style={{ background:'var(--steel)', height:80, borderRadius:8, display:'grid', placeItems:'center', color:'var(--ink-soft)', marginBottom:8 }}>No media yet</div>}
-            <MediaCapture label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const {data}=await supabase.storage.from('qc-photos').createSignedUrl(path,3600); if(data?.signedUrl) setMediaUrl(data.signedUrl) }} />
+            <MediaCapture label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const u = await mediaUrlFor(path); if (u) setMediaUrl(u) }} />
           </div>
         </div>
         <div className="row" style={{ marginTop:16 }}>
@@ -181,10 +246,22 @@ export function PassPhotoModal({ inspectionId, itemKey, itemLabel, pieceNo, tab:
   const save = async () => {
     if (!mediaPath) { onDone(); return }
     setSaving(true)
-    await supabase.from('photos').insert({
-      inspection_id: inspectionId, storage_path: mediaPath, media_type: mediaType,
-      is_pass_photo: true, item_key: itemKey, piece_no: pieceNo, comment,
-    })
+    let inserted = false
+    try {
+      const { error } = await supabase.from('photos').insert({
+        inspection_id: inspectionId, storage_path: mediaPath, media_type: mediaType,
+        is_pass_photo: true, item_key: itemKey, piece_no: pieceNo, comment,
+      })
+      inserted = !error
+    } catch { /* offline — falls through to the queue below */ }
+    if (!inserted) {
+      const ok = await queuePhotoRow({
+        inspection_id: inspectionId, container_loading_id: null,
+        storage_path: mediaPath, media_type: mediaType, is_pass_photo: true,
+        item_key: itemKey, piece_no: pieceNo, comment,
+      })
+      if (!ok) { setSaving(false); alert(t('mediaSaveFailed')); return }
+    }
     setSaving(false); onDone()
   }
 
@@ -203,7 +280,7 @@ export function PassPhotoModal({ inspectionId, itemKey, itemLabel, pieceNo, tab:
                 : <img src={mediaUrl} style={{ width:'100%', maxHeight:220, objectFit:'cover', borderRadius:8 }} />}
             </div>
           : <div style={{ background:'var(--steel)', height:100, borderRadius:8, display:'grid', placeItems:'center', color:'var(--ink-soft)', marginBottom:10 }}>No media yet</div>}
-        <MediaCapture label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const {data}=await supabase.storage.from('qc-photos').createSignedUrl(path,3600); if(data?.signedUrl) setMediaUrl(data.signedUrl) }} />
+        <MediaCapture label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const u = await mediaUrlFor(path); if (u) setMediaUrl(u) }} />
         <label className="fld" style={{ marginTop:10 }}><span>{t('comment')}</span>
           <textarea className="txt" rows={2} value={comment} onChange={e => setComment(e.target.value)} />
         </label>

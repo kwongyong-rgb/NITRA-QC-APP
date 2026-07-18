@@ -168,6 +168,11 @@ const STR = {
   offlinePoSetup:     { en: 'You’re offline — PO setup needs a connection. Your inspections still work offline; reconnect to change PO details.', zh: '您已离线——订单设置需要联网。检验仍可离线进行；请恢复联网后再修改订单信息。' },
   notSyncedBadge:     { en: 'NOT SYNCED', zh: '未同步' },
   poHasPendingWork:   { en: 'This PO has inspection work saved on this device that hasn’t uploaded yet. Reconnect and let it sync before deleting the PO.', zh: '此订单有检验数据保存在本设备且尚未上传。请恢复联网并完成同步后再删除订单。' },
+  offlineVideoWarn:   { en: 'You’re offline. This video is {SIZE} and will be kept on this device until you reconnect. Large videos can fill up your phone’s storage.\n\nSave it anyway?', zh: '您已离线。此视频大小为 {SIZE}，将保存在本设备直至恢复联网。大视频可能占满手机存储空间。\n\n仍要保存吗？' },
+  mediaSavedLocally:  { en: 'Saved on this device — it will upload automatically when you’re back online.', zh: '已保存在本设备——恢复联网后将自动上传。' },
+  mediaSaveFailed:    { en: 'Could not save this file on the device — storage may be full. Free up space and take it again.', zh: '无法在本设备保存此文件——存储空间可能已满。请清理空间后重新拍摄。' },
+  mediaWaiting:       { en: 'waiting to upload', zh: '等待上传' },
+  mediaPendingBanner: { en: 'photo/video file(s) saved on this device, waiting to upload', zh: '个照片/视频文件已保存在本设备，等待上传' },
   pendingOnDevice:    { en: 'saved on this device, not uploaded yet', zh: '已保存在本设备，尚未上传' },
 } satisfies Record<string, Bi>
 

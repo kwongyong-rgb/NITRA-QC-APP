@@ -5,6 +5,7 @@ import { useI18n } from './lib/i18n'
 import { useOnline } from './lib/connectivity'
 import { warmRefCache, warmPoCache } from './lib/refCache'
 import { syncPendingInspections } from './lib/offlineSync'
+import { syncPendingMedia, pendingMediaStats } from './lib/offlineMedia'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import NewInspection from './pages/NewInspection'
@@ -56,6 +57,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [wide, setWide] = useState(window.innerWidth >= 900)
   const [pendingCount, setPendingCount] = useState(0)
+  const [mediaPending, setMediaPending] = useState<{ count: number; bytes: number }>({ count: 0, bytes: 0 })
   const { lang, setLang, t } = useI18n()
   const online = useOnline()
   const nav = useNavigate()
@@ -117,7 +119,30 @@ export default function App() {
   // Push any offline-created inspections to the server whenever we're logged in and
   // online (on load and the moment connectivity returns). Scoped to this user; the
   // currently-open inspection syncs itself from its own screen.
-  useEffect(() => { if (online && profile) void syncPendingInspections(profile.id) }, [online, profile])
+  //
+  // ORDER IS DELIBERATE: inspections first, THEN their photos — a photo row whose
+  // parent inspection isn't on the server yet would fail to insert. (It would stay
+  // queued and retry, but this way it lands first time.)
+  useEffect(() => {
+    if (!(online && profile)) return
+    void (async () => {
+      await syncPendingInspections(profile.id)
+      const n = await syncPendingMedia(profile.id)
+      if (n > 0) setMediaPending(await pendingMediaStats(profile.id))
+    })()
+  }, [online, profile])
+
+  // Running tally of photos/videos still waiting to upload (v91). Polled rather
+  // than pushed: capture happens deep inside modals, and a 15s refresh is far
+  // simpler than threading a callback through every photo path.
+  useEffect(() => {
+    if (!profile || profile.role === 'customer') return
+    let alive = true
+    const tick = async () => { const s = await pendingMediaStats(profile.id); if (alive) setMediaPending(s) }
+    void tick()
+    const id = window.setInterval(tick, 15_000)
+    return () => { alive = false; window.clearInterval(id) }
+  }, [profile, online])
 
   // Sidebar badge: how many items await approval (admins, refreshed per navigation)
   useEffect(() => {
@@ -192,6 +217,15 @@ export default function App() {
         >
           <span className="dot" />{online ? t('online') : t('offline')}
         </span>
+        {mediaPending.count > 0 && (
+          <span
+            className="netpill"
+            style={{ background: '#7A5514', color: '#FCF2DD' }}
+            title={`${mediaPending.count} ${t('mediaWaiting')} · ${(mediaPending.bytes / (1024 * 1024)).toFixed(0)} MB`}
+          >
+            ⏳ {mediaPending.count}
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         <button className="topbar-burger" aria-label="Menu" onClick={() => setMenuOpen(o => !o)}>☰</button>
         <nav className={menuOpen ? 'topbar-nav open' : 'topbar-nav'} onClick={() => setMenuOpen(false)}>

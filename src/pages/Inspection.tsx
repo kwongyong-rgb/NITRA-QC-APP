@@ -16,6 +16,7 @@ import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
 import { cacheGet } from '../lib/refCache'
 import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
+import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId } from '../lib/offlineMedia'
 import { useOnline } from '../lib/connectivity'
 import SharedPosCard from '../components/SharedPosCard'
 
@@ -181,7 +182,20 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
     setDefects((d as Defect[]) || [])
     const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
-    setPhotos((p as Photo[]) || [])
+    // Merge photos captured offline (Stage 3). They live in the local media queue
+    // until they upload; without this they'd be invisible on the very screen you
+    // just took them on. Deduped by storage_path so a just-synced photo, briefly
+    // present in both places, can't appear twice.
+    const server = (p as Photo[]) || []
+    const havePaths = new Set(server.map(x => x.storage_path))
+    const queued = (await getPendingPhotosFor(id!, await currentUserId()))
+      .filter(q => !havePaths.has(q.storage_path))
+      .map(q => ({
+        id: q.id, storage_path: q.storage_path, defect_id: null,
+        is_pass_photo: q.is_pass_photo, item_key: q.item_key, piece_no: q.piece_no,
+        comment: q.comment, checklist_key: '', media_type: q.media_type,
+      } as Photo))
+    setPhotos([...server, ...queued])
     if (draft) {
       const serverContent = JSON.stringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
       if (JSON.stringify(draft.data) !== serverContent) setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
@@ -269,14 +283,18 @@ export default function Inspection({ profile }: { profile: Profile }) {
     await loadCustomDisps()
     setSubmitMsg('Custom disposition saved for future use.')
   }
+  // Resolve a display URL per photo: the local blob first (instant, and the only
+  // option offline), else a signed storage URL. Object URLs are revoked on
+  // unmount so holding a big offline gallery open doesn't leak memory.
   useEffect(() => {
     photos.forEach(async p => {
       if (!photoUrls[p.storage_path]) {
-        const { data } = await supabase.storage.from('qc-photos').createSignedUrl(p.storage_path, 3600)
-        if (data?.signedUrl) setPhotoUrls(prev => ({ ...prev, [p.storage_path]: data.signedUrl }))
+        const u = await mediaUrlFor(p.storage_path)
+        if (u) setPhotoUrls(prev => ({ ...prev, [p.storage_path]: u }))
       }
     })
   }, [photos]) // eslint-disable-line
+  useEffect(() => () => { Object.values(photoUrls).forEach(revokeMediaUrl) }, []) // eslint-disable-line
 
   const inspectorEditable = !!(insp && (insp.status==='draft'||insp.status==='rejected') && insp.inspector_id===profile.id)
   const canAmend = profile.role === 'admin'
@@ -821,11 +839,26 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   const addAppendixPhoto = async (path: string, type: 'photo'|'video') => {
     if (!insp) return
-    const { error } = await supabase.from('photos').insert({
-      inspection_id: insp.id, storage_path: path, media_type: type,
-      is_pass_photo: true, item_key: 'appendix', piece_no: 0, comment: '',
-    })
-    if (error) { alert('Could not add appendix photo: ' + error.message); return }
+    let inserted = false
+    try {
+      const { error } = await supabase.from('photos').insert({
+        inspection_id: insp.id, storage_path: path, media_type: type,
+        is_pass_photo: true, item_key: 'appendix', piece_no: 0, comment: '',
+      })
+      inserted = !error
+      if (error && !isNetworkErr(error)) { alert('Could not add appendix photo: ' + error.message); return }
+    } catch { /* offline — falls through to the queue below */ }
+    if (!inserted) {
+      // Offline — queue the row; MediaCapture already kept the file locally.
+      const ok = await savePendingPhotoRow({
+        id: (globalThis.crypto?.randomUUID?.()) || `row-${Date.now()}`,
+        inspection_id: insp.id, container_loading_id: null,
+        storage_path: path, media_type: type, is_pass_photo: true,
+        item_key: 'appendix', piece_no: 0, comment: '',
+        inspector_id: await currentUserId(), savedAt: new Date().toISOString(),
+      })
+      if (!ok) { alert(t('mediaSaveFailed')); return }
+    }
     recordAmend('Added an appendix photo')
     load()
   }
