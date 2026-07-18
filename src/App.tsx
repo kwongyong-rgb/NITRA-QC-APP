@@ -132,13 +132,22 @@ export default function App() {
     })()
   }, [online, profile])
 
-  // Running tally of photos/videos still waiting to upload (v91). Polled rather
-  // than pushed: capture happens deep inside modals, and a 15s refresh is far
-  // simpler than threading a callback through every photo path.
+  // Running tally of photos/videos still waiting to upload (v91), plus a RETRY.
+  //
+  // The retry is load-bearing, not belt-and-braces: the batch inspection sync
+  // deliberately SKIPS the currently-open inspection (its own screen syncs it, to
+  // avoid a two-writer race). So on reconnect its photos can't insert yet — the
+  // parent row isn't on the server at that instant — and without a retry they
+  // stayed queued forever with the ⏳ chip stuck. syncPendingMedia has its own
+  // in-flight guard, so overlapping calls are harmless.
   useEffect(() => {
     if (!profile || profile.role === 'customer') return
     let alive = true
-    const tick = async () => { const s = await pendingMediaStats(profile.id); if (alive) setMediaPending(s) }
+    const tick = async () => {
+      if (online) await syncPendingMedia(profile.id)
+      const s = await pendingMediaStats(profile.id)
+      if (alive) setMediaPending(s)
+    }
     void tick()
     const id = window.setInterval(tick, 15_000)
     return () => { alive = false; window.clearInterval(id) }

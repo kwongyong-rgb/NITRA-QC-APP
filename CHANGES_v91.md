@@ -1,5 +1,38 @@
 # v91 — B6 Stage 3: offline photos & videos
 
+---
+
+## Three bugs found in on-device testing and fixed before release
+
+The first cut queued photos correctly (the ⏳ tally proved it) but they were
+**invisible on screen** and **never uploaded**. Root causes:
+
+**1 & 2. Offline photos didn't appear** — not on the per-parameter 📷 button
+count, not in the Photos tab. `Inspection.load()` has THREE early returns on the
+offline paths (pending inspection already loaded; network failure with a prior
+successful load; SKU resolve failure). The pending-photo merge had been written at
+the END of `load()`, so offline it was never reached — the exact paths it existed
+to serve.
+**Fix:** server photos and queued photos are now separate state, merged for
+display via `useMemo`, with the queue read by its **own effect** keyed on
+`[id, mediaTick, online]`. Display no longer depends on `load()` completing.
+A new `afterPhotoChange()` bumps `mediaTick` wherever a photo is added or
+changed, since `load()` alone cannot refresh the queue.
+
+**3. The ⏳ chip never cleared after reconnecting.** The batch inspection sync
+deliberately **skips the currently-open inspection** (its own screen syncs it, to
+avoid a two-writer race). So on reconnect `syncPendingMedia` ran while the parent
+inspection row was still absent, every photo insert failed, and nothing ever
+retried — the files stayed queued indefinitely.
+**Fix, two parts:** (a) the 15s tally poll now also **retries the media sync**
+while online, and (b) the Inspection screen kicks a media sync the moment its own
+`syncOnePending` succeeds, so it doesn't wait up to 15 seconds.
+
+**Lesson for future batches:** in `Inspection.tsx`, anything that must work
+offline cannot live at the tail of `load()`. Check the early returns first.
+
+---
+
 Photos taken offline are now **kept on the device and uploaded automatically when
 you reconnect**. Previously they were lost: `MediaCapture` retried the upload 3×
 then alerted *"the photo is still on your device"* — which wasn't true in any

@@ -16,7 +16,7 @@ import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
 import { cacheGet } from '../lib/refCache'
 import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
-import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId } from '../lib/offlineMedia'
+import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId, syncPendingMedia } from '../lib/offlineMedia'
 import { useOnline } from '../lib/connectivity'
 import SharedPosCard from '../components/SharedPosCard'
 
@@ -113,7 +113,19 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [isPending, setIsPending] = useState(false)  // offline-created, not yet synced to the server
   const loadedOnceRef = useRef(false)  // true after one full successful load — lets offline reloads keep the working screen
   const [defects, setDefects] = useState<Defect[]>([])
-  const [photos, setPhotos] = useState<Photo[]>([])
+  // Photos come from two places: the server, and the offline media queue. They are
+  // kept SEPARATE and merged for display, because load() has several early returns
+  // on the offline paths (pending inspection, network failure) — merging inside
+  // load() meant offline photos never appeared on the very screen you took them on.
+  const [serverPhotos, setServerPhotos] = useState<Photo[]>([])
+  const [queuedPhotos, setQueuedPhotos] = useState<Photo[]>([])
+  // Bumped whenever a photo is added/changed, to re-read the offline queue.
+  const [mediaTick, setMediaTick] = useState(0)
+  // Deduped by storage_path: right after a sync a photo is briefly in both lists.
+  const photos = useMemo(() => {
+    const have = new Set(serverPhotos.map(p => p.storage_path))
+    return [...serverPhotos, ...queuedPhotos.filter(q => !have.has(q.storage_path))]
+  }, [serverPhotos, queuedPhotos])
   const [photoUrls, setPhotoUrls] = useState<Record<string,string>>({})
   const [tab, setTab] = useState<typeof TABS[number]>('form')
   const [piece, setPiece] = useState(1)
@@ -182,20 +194,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
     setDefects((d as Defect[]) || [])
     const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
-    // Merge photos captured offline (Stage 3). They live in the local media queue
-    // until they upload; without this they'd be invisible on the very screen you
-    // just took them on. Deduped by storage_path so a just-synced photo, briefly
-    // present in both places, can't appear twice.
-    const server = (p as Photo[]) || []
-    const havePaths = new Set(server.map(x => x.storage_path))
-    const queued = (await getPendingPhotosFor(id!, await currentUserId()))
-      .filter(q => !havePaths.has(q.storage_path))
-      .map(q => ({
-        id: q.id, storage_path: q.storage_path, defect_id: null,
-        is_pass_photo: q.is_pass_photo, item_key: q.item_key, piece_no: q.piece_no,
-        comment: q.comment, checklist_key: '', media_type: q.media_type,
-      } as Photo))
-    setPhotos([...server, ...queued])
+    setServerPhotos((p as Photo[]) || [])
     if (draft) {
       const serverContent = JSON.stringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
       if (JSON.stringify(draft.data) !== serverContent) setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
@@ -204,6 +203,25 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  // Read the offline media queue independently of load(). Runs on open, after any
+  // photo change (mediaTick), and when connectivity flips — so a photo taken
+  // offline shows up immediately, and disappears from the queue once uploaded.
+  useEffect(() => {
+    if (!id) return
+    let alive = true
+    ;(async () => {
+      const uid = await currentUserId()
+      const q = await getPendingPhotosFor(id, uid)
+      if (!alive) return
+      setQueuedPhotos(q.map(r => ({
+        id: r.id, storage_path: r.storage_path, defect_id: null,
+        is_pass_photo: r.is_pass_photo, item_key: r.item_key, piece_no: r.piece_no,
+        comment: r.comment, checklist_key: '', media_type: r.media_type,
+      } as Photo)))
+    })()
+    return () => { alive = false }
+  }, [id, mediaTick, online])
 
   // B6 Stage 1 — mirror the open inspection to this device on every change, as a
   // safety net alongside the normal Supabase writes. Pure insurance; failures in
@@ -227,12 +245,21 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (!isPending) { selfSyncedRef.current = false; return }
     if (online && insp && sku && !selfSyncedRef.current) {
       selfSyncedRef.current = true
-      syncOnePending(insp, profile.id).then(ok => {
-        if (ok) { setIsPending(false); setOfflineNote(false) }
+      syncOnePending(insp, profile.id).then(async ok => {
+        if (ok) {
+          setIsPending(false); setOfflineNote(false)
+          // The inspection row now exists, so its queued photos can finally
+          // insert. Do it immediately rather than waiting for the 15s retry.
+          await syncPendingMedia(profile.id)
+          setMediaTick(t => t + 1)
+          load()
+        }
         else selfSyncedRef.current = false   // retry on the next change/reconnect
       })
     }
-  }, [online, isPending, insp, sku, profile.id])
+    // `load` is a stable useCallback([id]); the selfSyncedRef guard plus
+    // isPending flipping false stop this from re-entering.
+  }, [online, isPending, insp, sku, profile.id, load])
 
   const applyRestore = async () => {
     if (!insp || !restore) return
@@ -828,6 +855,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
     return secs
   }, [photos, bi])
 
+  // After any photo add/change: refresh BOTH the server list and the offline
+  // queue. load() alone is not enough — it early-returns on the offline paths.
+  const afterPhotoChange = () => { setMediaTick(t => t + 1); load() }
+
   const deletePhoto = async (p: Photo) => {
     if (!confirm('Delete this photo/video? This cannot be undone.')) return
     const { data, error } = await supabase.from('photos').delete().eq('id', p.id).select('id')
@@ -860,7 +891,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
       if (!ok) { alert(t('mediaSaveFailed')); return }
     }
     recordAmend('Added an appendix photo')
-    load()
+    afterPhotoChange()
   }
 
   // Report appendix: section header → parameter, split Approved / Failed (mirrors the Photos tab)
@@ -1407,8 +1438,8 @@ export default function Inspection({ profile }: { profile: Profile }) {
       )}
 
       {/* ── MODALS ── */}
-      {modal?.type==='fail' && <DefectModal inspectionId={insp.id} itemKey={modal.itemKey} itemLabel={modal.itemLabel} pieceNo={modal.pieceNo} tab={modal.tab} onDone={() => { setModal(null); load() }} onClose={() => { setModal(null); load() }} />}
-      {modal?.type==='pass' && <PassPhotoModal inspectionId={insp.id} itemKey={modal.itemKey} itemLabel={modal.itemLabel} pieceNo={modal.pieceNo} tab={modal.tab} onDone={() => { setModal(null); load() }} onClose={() => setModal(null)} />}
+      {modal?.type==='fail' && <DefectModal inspectionId={insp.id} itemKey={modal.itemKey} itemLabel={modal.itemLabel} pieceNo={modal.pieceNo} tab={modal.tab} onDone={() => { setModal(null); afterPhotoChange() }} onClose={() => { setModal(null); afterPhotoChange() }} />}
+      {modal?.type==='pass' && <PassPhotoModal inspectionId={insp.id} itemKey={modal.itemKey} itemLabel={modal.itemLabel} pieceNo={modal.pieceNo} tab={modal.tab} onDone={() => { setModal(null); afterPhotoChange() }} onClose={() => setModal(null)} />}
       {modal?.type==='extra' && <ExtraPieceScreen inspectionId={insp.id} itemKey={modal.verdict.key} itemLabel={modal.verdict.label} result={modal.result} existingExtras={modal.verdict.extraResults} extrasRequired={extrasRequiredFor(modal.verdict.tab)} onSave={r => addExtra(modal.verdict, r)} onUndo={() => undoExtra(modal.verdict)} onClose={() => setModal(null)} />}
       {modal?.type==='preview' && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
@@ -1430,11 +1461,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
       )}
       {modal?.type==='reassign' && (
         <ReassignModal photo={modal.photo} allItems={allItemsForReassign} maxPiece={Math.max(insp.app_sample, insp.fun_sample)}
-          onDone={() => { setModal(null); recordAmend('Re-assigned a photo'); load() }} onClose={() => setModal(null)} />
+          onDone={() => { setModal(null); recordAmend('Re-assigned a photo'); afterPhotoChange() }} onClose={() => setModal(null)} />
       )}
       {modal?.type==='copy' && (
         <CopyModal inspectionId={insp.id} photo={modal.photo} allItems={allItemsForReassign}
-          onDone={() => { setModal(null); recordAmend('Copied a photo'); load() }} onClose={() => setModal(null)} />
+          onDone={() => { setModal(null); recordAmend('Copied a photo'); afterPhotoChange() }} onClose={() => setModal(null)} />
       )}
       {emailOpen && <EmailModal title="Email inspection report" allowBlank sending={emailBusy}
         onSend={doEmailReport} onClose={() => setEmailOpen(false)} />}
