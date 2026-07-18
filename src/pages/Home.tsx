@@ -3,23 +3,17 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/connectivity'
-import {
-  cacheGetWithMeta, cacheSet, poListKey, cacheAllKeys, cacheAvailable,
-  getLastWrite, getLastWarm, type CachedPoGroup as POGroup,
-} from '../lib/refCache'
+import { cacheGetWithMeta, cacheSet, poListKey, type CachedPoGroup } from '../lib/refCache'
+import { getPendingForUser } from '../lib/offlineSync'
+
+// A PO row as displayed: the cached/server group plus any offline-created
+// inspections for that PO that haven't uploaded yet.
+type POGroup = CachedPoGroup & { pending?: number }
 import type { Profile } from '../App'
 
 interface InspRow { id: string; po_no: string | null; updated_at: string }
 interface ContRow { id: string; po_no: string | null; updated_at: string }
 interface PoMaster { po_no: string; customer_name: string | null; destination: string | null; created_at: string }
-
-// v88 diagnostic snapshot — temporary scaffolding while we chase why the PO
-// cache read comes back empty on a real device. Remove once resolved.
-interface Diag {
-  navOnLine: boolean; idbOk: boolean; uid: string; key: string
-  found: boolean; savedAt: string; count: number
-  keys: string[]; lastWrite: string; lastWarm: string
-}
 
 export default function Home({ profile }: { profile: Profile }) {
   const nav = useNavigate()
@@ -38,7 +32,25 @@ export default function Home({ profile }: { profile: Profile }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [resume, setResume] = useState<{ kind: 'inspection' | 'container'; id: string; label: string; po: string; at: string } | null>(null)
-  const [diag, setDiag] = useState<Diag | null>(null)
+
+  // Merge offline-created inspections into the PO rows, so a PO doesn't read
+  // "0 wheel inspection(s)" when you have one sitting on the device — and so a PO
+  // that exists ONLY because you started an inspection for it offline still
+  // appears. `serverIds` dedupes the moment after a sync when the row is on the
+  // server but is briefly still in the pending store.
+  const withPending = useCallback(async (list: POGroup[], serverIds: Set<string>): Promise<POGroup[]> => {
+    const pend = (await getPendingForUser(profile.id)).filter(p => !serverIds.has(p.id))
+    if (!pend.length) return list
+    const map = new Map(list.map(g => [g.po, { ...g }]))
+    for (const p of pend) {
+      const po = p.po_no || ''
+      const g = map.get(po) || { po, inspCount: 0, contCount: 0, latest: p.updated_at }
+      g.pending = (g.pending || 0) + 1
+      if (p.updated_at > g.latest) g.latest = p.updated_at
+      map.set(po, g)
+    }
+    return [...map.values()].sort((a, b) => b.latest.localeCompare(a.latest))
+  }, [profile.id])
 
   // Read-through: try live → cache the result on success → fall back to the
   // on-device copy when the fetch fails (offline). Before v87 this screen was
@@ -70,40 +82,20 @@ export default function Home({ profile }: { profile: Profile }) {
         map.set(m.po_no, g)
       }
       const next = [...map.values()].sort((a, b) => b.latest.localeCompare(a.latest))
-      setGroups(next); setCachedAt(null); setLoaded(true)
-      // v88: AWAIT the write (was fire-and-forget). If the user went offline
-      // moments later, an unfinished write was one candidate for the empty cache.
+      // Cache the SERVER view (await it — a fire-and-forget write could be cut
+      // short by going offline), then display it with pending work merged in.
       await cacheSet(key, next)
+      const serverIds = new Set(((i.data as InspRow[]) || []).map(r => r.id))
+      setGroups(await withPending(next, serverIds)); setCachedAt(null); setLoaded(true)
       return
     } catch { /* offline / fetch failed — fall through to the cache */ }
+    // Offline: nothing is synced by definition, so no server ids to dedupe against.
     const cached = await cacheGetWithMeta<POGroup[]>(key)
-    if (cached) { setGroups(cached.value); setCachedAt(cached.savedAt) }
+    if (cached) { setGroups(await withPending(cached.value, new Set())); setCachedAt(cached.savedAt) }
+    else setGroups(await withPending([], new Set()))   // no cache yet, but pending work still shows
     setLoaded(true)
-  }, [profile.id])
+  }, [profile.id, withPending])
   useEffect(() => { load() }, [load])
-
-  // v88 diagnostic snapshot, refreshed alongside every load.
-  useEffect(() => {
-    (async () => {
-      const key = poListKey(profile.id)
-      const [idbOk, keys, entry] = await Promise.all([
-        cacheAvailable(), cacheAllKeys(), cacheGetWithMeta<POGroup[]>(key),
-      ])
-      const w = getLastWrite(); const wa = getLastWarm()
-      setDiag({
-        navOnLine: typeof navigator !== 'undefined' ? navigator.onLine : true,
-        idbOk,
-        uid: profile.id,
-        key,
-        found: !!entry,
-        savedAt: entry ? new Date(entry.savedAt).toLocaleString() : '—',
-        count: entry ? (entry.value?.length ?? 0) : 0,
-        keys,
-        lastWrite: w ? `${w.ok ? 'OK' : 'FAILED'} · ${w.key} · ${new Date(w.at).toLocaleTimeString()}` : 'none this session',
-        lastWarm: wa ? `${wa.ok ? 'OK' : 'FAILED'} · ${wa.poCount} POs · ${wa.note} · ${new Date(wa.at).toLocaleTimeString()}` : 'not run this session',
-      })
-    })()
-  }, [profile.id, groups, cachedAt, loaded])
 
   // "Continue where you left off": the newest draft/rejected item started by me.
   useEffect(() => {
@@ -160,6 +152,9 @@ export default function Home({ profile }: { profile: Profile }) {
     // Offline this would fail on the first delete and alert a raw network error —
     // and a cached list may be stale, so deleting from it is doubly wrong.
     if (!online) { alert(t('offlinePoSetup')); return }
+    // Deleting a PO that still has un-uploaded inspections would destroy the
+    // server side while the device copy survives and re-syncs later. Block it.
+    if (g.pending) { alert(t('poHasPendingWork')); return }
     if (!confirm(`Delete the ENTIRE PO “${label}”?\n\nThis permanently deletes its ${g.inspCount} wheel inspection(s) and ${g.contCount} container loading(s), including their photos.\n\nThis cannot be undone.`)) return
     const { error: e1 } = await supabase.from('inspections').delete().eq('po_no', g.po)
     const { error: e2 } = await supabase.from('container_loadings').delete().eq('po_no', g.po)
@@ -201,6 +196,9 @@ export default function Home({ profile }: { profile: Profile }) {
               <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
                 {g.customer ? <>{g.customer}{g.destination ? ` → ${g.destination}` : ''} · </> : (g.destination ? <>→ {g.destination} · </> : null)}
                 {g.inspCount} wheel inspection(s) · {g.contCount} container loading(s)
+                {!!g.pending && (
+                  <span style={{ color: 'var(--amber)', fontWeight: 700 }}> · ⏳ {g.pending} {t('notSyncedBadge')}</span>
+                )}
               </div>
             </Link>
             {profile.role === 'admin' && (
@@ -209,27 +207,6 @@ export default function Home({ profile }: { profile: Profile }) {
           </div>
         ))}
       </div>
-
-      {/* v88 TEMPORARY diagnostic — staff only, remove once the empty-cache
-          issue is resolved. Read these lines out to diagnose in one round trip
-          instead of guessing from symptoms. */}
-      {profile.role !== 'customer' && diag && (
-        <div className="card" style={{ borderColor: 'var(--amber)', background: '#FFFDF6' }}>
-          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--amber)', marginBottom: 6 }}>
-            🔧 OFFLINE CACHE DIAGNOSTIC (temporary — v88)
-          </div>
-          <div style={{ fontSize: 12, lineHeight: 1.7, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-            <div><b>A. ping says:</b> {online ? 'ONLINE' : 'OFFLINE'} · <b>navigator.onLine:</b> {String(diag.navOnLine)}{online !== diag.navOnLine ? '  ⚠ DISAGREE' : ''}</div>
-            <div><b>B. IndexedDB usable:</b> {diag.idbOk ? 'YES' : 'NO ⚠'}</div>
-            <div><b>C. my user id:</b> {diag.uid}</div>
-            <div><b>D. looking for key:</b> {diag.key}</div>
-            <div><b>E. entry found:</b> {diag.found ? `YES — ${diag.count} POs, saved ${diag.savedAt}` : 'NO ⚠'}</div>
-            <div><b>F. last write:</b> {diag.lastWrite}</div>
-            <div><b>G. last warm:</b> {diag.lastWarm}</div>
-            <div><b>H. keys in cache ({diag.keys.length}):</b> {diag.keys.length ? diag.keys.slice(0, 12).join(' | ') + (diag.keys.length > 12 ? ` | …+${diag.keys.length - 12} more` : '') : '(none) ⚠'}</div>
-          </div>
-        </div>
-      )}
 
       {newPo && (
         <div className="modal-overlay" onClick={() => setNewPo(null)}>

@@ -39,7 +39,18 @@ offline (pill correctly said Offline / 离线, login survived, app booted from t
 service worker) but **no POs were displayed**, and the empty card showed the
 ONLINE message.
 
-## Bug 1 — CONFIRMED AND FIXED: `navigator.onLine` lies on iOS PWAs
+## Bug 1 — ⚠️ SUPERSEDED BY v89: this diagnosis was WRONG
+
+**Read the correction in `CHANGES_v89.md` before trusting anything in this
+section.** On-device testing after the deploy was fixed showed
+`ping: OFFLINE · navigator.onLine: false` — they agreed, and the claimed iOS bug
+did not reproduce. The symptom below was caused by the device running OLD code
+(the Vercel deploy had silently failed), not by `navigator.onLine`.
+
+The code change (moving user-facing checks to the `useOnline()` hook) is still
+correct and was kept — but for a different reason than stated here.
+
+*Original (incorrect) text follows for the record:*
 
 The empty state used `isOffline()` (i.e. `navigator.onLine === false`). In an iOS
 **standalone PWA in airplane mode, `navigator.onLine` still reports `true`** — so

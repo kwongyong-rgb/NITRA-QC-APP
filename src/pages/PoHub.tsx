@@ -11,8 +11,9 @@ import PoStatusStrip from '../components/PoStatusStrip'
 import CustomerAccessCard from '../components/CustomerAccessCard'
 import { useOnline } from '../lib/connectivity'
 import { cacheGetWithMeta, cacheSet, poHubKey, type CachedPoHub } from '../lib/refCache'
+import { getPendingForUser } from '../lib/offlineSync'
 
-type Insp = CachedPoHub['insps'][number]
+type Insp = CachedPoHub['insps'][number] & { pending?: boolean }
 type Cont = CachedPoHub['conts'][number]
 
 function fmt(dt: string | null) {
@@ -37,6 +38,20 @@ export default function PoHub({ profile }: { profile: Profile }) {
   // silently, so the user sees a single clear notice, not three stacked ones.
   const [cachedAt, setCachedAt] = useState<string | null>(null)
 
+  // Offline-created inspections for THIS PO, deduped against whatever is already
+  // shown (right after a sync the row is on the server and may still be in the
+  // pending store for a moment). Never cached — the cache holds server truth.
+  const withPending = useCallback(async (list: Insp[]): Promise<Insp[]> => {
+    const have = new Set(list.map(i => i.id))
+    const extra: Insp[] = (await getPendingForUser(profile.id))
+      .filter(p => (p.po_no || '') === po && !have.has(p.id))
+      .map(p => ({
+        id: p.id, part_no: p.part_no, status: p.status || 'draft',
+        updated_at: p.updated_at, inspector_id: p.inspector_id, pending: true,
+      }))
+    return [...extra, ...list].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  }, [po, profile.id])
+
   // Read-through: try live → cache on success → fall back to the on-device copy.
   const load = useCallback(async () => {
     const key = poHubKey(profile.id, po)
@@ -51,13 +66,15 @@ export default function PoHub({ profile }: { profile: Profile }) {
       const { data: c, error: cErr } = await supabase.from('container_loadings').select('id,container_no,seal_no,status,insp_status,updated_at,inspector_id').eq('po_no', po).order('updated_at', { ascending: false })
       if (cErr) throw new Error(cErr.message)
       const contList = (c as Cont[]) || []
-      setInsps(inspList); setConts(contList); setCachedAt(null)
+      // Cache the SERVER view, then display it with pending work merged in.
       void cacheSet(key, { insps: inspList, conts: contList } satisfies CachedPoHub)
+      setInsps(await withPending(inspList)); setConts(contList); setCachedAt(null)
       return
     } catch { /* offline / fetch failed — fall through to the cache */ }
     const cached = await cacheGetWithMeta<CachedPoHub>(key)
-    if (cached) { setInsps(cached.value.insps); setConts(cached.value.conts); setCachedAt(cached.savedAt) }
-  }, [po, profile.id])
+    if (cached) { setInsps(await withPending(cached.value.insps)); setConts(cached.value.conts); setCachedAt(cached.savedAt) }
+    else setInsps(await withPending([]))   // no cache yet, but pending work still shows
+  }, [po, profile.id, withPending])
   useEffect(() => { load() }, [load])
 
   const addContainer = async () => {
@@ -99,7 +116,9 @@ export default function PoHub({ profile }: { profile: Profile }) {
     if (error) { alert('Delete failed: ' + error.message); return }
     load()
   }
-  const canDelInsp = (r: Insp) => profile.role === 'admin' || (r.status === 'draft' && r.inspector_id === profile.id)
+  // A pending inspection exists only on this device, so a server delete would
+  // affect 0 rows and it would simply reappear. It becomes deletable once synced.
+  const canDelInsp = (r: Insp) => !r.pending && (profile.role === 'admin' || (r.status === 'draft' && r.inspector_id === profile.id))
   const canDelCont = (c: Cont) => profile.role === 'admin' || (['draft', 'rejected'].includes(c.insp_status) && c.inspector_id === profile.id)
 
   const delPO = async () => {
@@ -149,10 +168,14 @@ export default function PoHub({ profile }: { profile: Profile }) {
               <div style={{ flex: 1 }}>
                 <div className="row" style={{ gap: 8 }}>
                   <Link to={`/inspection/${r.id}`} style={{ fontWeight: 700, fontSize: 16 }}>{r.part_no}</Link>
-                  <span className={`pill ${r.status}`}>{r.status}</span>
+                  {r.pending
+                    ? <span className="pill" style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}>⏳ {t('notSyncedBadge')}</span>
+                    : <span className={`pill ${r.status}`}>{r.status}</span>}
                   {r.off_po && <span className="pill" style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}>⚠ {t('offPo')}</span>}
                 </div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>{t('updated')}: {fmt(r.updated_at)}</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                  {t('updated')}: {fmt(r.updated_at)}{r.pending && <> · {t('pendingOnDevice')}</>}
+                </div>
               </div>
               {canDelInsp(r) && <button className="btn danger" style={{ minHeight: 36, padding: '4px 10px', fontSize: 13 }} onClick={() => delInsp(r)}>🗑</button>}
             </div>

@@ -88,6 +88,17 @@ export async function getAllPendingInspections(): Promise<PendingInspection[]> {
 export async function pendingCount(): Promise<number> {
   return (await getAllPendingInspections()).length
 }
+
+// v90 — pending inspections belonging to ONE user, for the list screens
+// (Home / MyWork / PoHub). Scoped to the signed-in inspector for the same reason
+// syncPendingInspections is: a device shared between users must never surface (or
+// upload) another user's offline work. Fail-safe: returns [] on any error.
+export async function getPendingForUser(userId: string): Promise<PendingInspection[]> {
+  if (!userId) return []
+  try {
+    return (await getAllPendingInspections()).filter(p => p.inspector_id === userId)
+  } catch { return [] }
+}
 async function removePendingInspection(id: string): Promise<void> {
   await run('readwrite', (s) => s.delete(id))
 }
