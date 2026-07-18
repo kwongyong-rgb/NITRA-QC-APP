@@ -9,7 +9,7 @@ import AttachInspectionModal from '../components/AttachInspectionModal'
 import { linkedInspectionIds, deletePoLinksAndOrphans } from '../lib/inspectionPos'
 import PoStatusStrip from '../components/PoStatusStrip'
 import CustomerAccessCard from '../components/CustomerAccessCard'
-import { isOffline } from '../lib/connectivity'
+import { useOnline } from '../lib/connectivity'
 import { cacheGetWithMeta, cacheSet, poHubKey, type CachedPoHub } from '../lib/refCache'
 
 type Insp = CachedPoHub['insps'][number]
@@ -26,6 +26,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const po = decodeURIComponent(poNo || '')
   const nav = useNavigate()
   const { t } = useI18n()
+  // Ping-confirmed; see the note in Home.tsx about iOS navigator.onLine.
+  const online = useOnline()
   const [insps, setInsps] = useState<Insp[]>([])
   const [conts, setConts] = useState<Cont[]>([])
   const [busy, setBusy] = useState(false)
@@ -55,13 +57,12 @@ export default function PoHub({ profile }: { profile: Profile }) {
     } catch { /* offline / fetch failed — fall through to the cache */ }
     const cached = await cacheGetWithMeta<CachedPoHub>(key)
     if (cached) { setInsps(cached.value.insps); setConts(cached.value.conts); setCachedAt(cached.savedAt) }
-    else if (isOffline()) setCachedAt(null)
   }, [po, profile.id])
   useEffect(() => { load() }, [load])
 
   const addContainer = async () => {
     // Container loadings can't be created offline yet (still on the Stage 2 list).
-    if (isOffline()) { alert(t('offlinePoSetup')); return }
+    if (!online) { alert(t('offlinePoSetup')); return }
     setBusy(true)
     const { data, error } = await supabase.from('container_loadings').insert({ inspector_id: profile.id, po_no: po }).select('id').single()
     setBusy(false)
@@ -81,7 +82,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
   }
 
   const delInsp = async (r: Insp) => {
-    if (isOffline()) { alert(t('offlinePoSetup')); return }
+    if (!online) { alert(t('offlinePoSetup')); return }
     if (!confirm(t('delWheelConfirm'))) return
     await supabase.from('inspection_pos').delete().eq('inspection_id', r.id).eq('po_no', po)
     const { data: still } = await supabase.from('inspection_pos').select('inspection_id').eq('inspection_id', r.id).limit(1)
@@ -92,7 +93,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
     load()
   }
   const delCont = async (c: Cont) => {
-    if (isOffline()) { alert(t('offlinePoSetup')); return }
+    if (!online) { alert(t('offlinePoSetup')); return }
     if (!confirm(t('delContConfirm'))) return
     const { error } = await supabase.from('container_loadings').delete().eq('id', c.id)
     if (error) { alert('Delete failed: ' + error.message); return }
@@ -102,7 +103,7 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const canDelCont = (c: Cont) => profile.role === 'admin' || (['draft', 'rejected'].includes(c.insp_status) && c.inspector_id === profile.id)
 
   const delPO = async () => {
-    if (isOffline()) { alert(t('offlinePoSetup')); return }
+    if (!online) { alert(t('offlinePoSetup')); return }
     if (!confirm(`Delete the ENTIRE PO “${po || '(No PO)'}”?\n\nThis permanently deletes its ${insps.length} wheel inspection(s) and ${conts.length} container loading(s), including their photos.\n\nThis cannot be undone.`)) return
     await deletePoLinksAndOrphans(po)
     const { error: e2 } = await supabase.from('container_loadings').delete().eq('po_no', po)

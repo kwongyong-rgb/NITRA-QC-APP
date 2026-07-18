@@ -58,10 +58,37 @@ function run<T>(mode: IDBTransactionMode, make: (store: IDBObjectStore) => IDBRe
   }).catch(() => null)
 }
 
-// Store (or refresh) a cached value. Fire-and-forget safe.
-export async function cacheSet(key: string, value: unknown): Promise<void> {
+// Store (or refresh) a cached value. Still fail-safe (never throws), but v88
+// RETURNS whether the write actually landed. Previously this swallowed failures
+// silently, which made an empty cache impossible to diagnose on a phone with no
+// developer console.
+export async function cacheSet(key: string, value: unknown): Promise<boolean> {
   const rec: CacheRec = { key, value, savedAt: new Date().toISOString() }
-  await run('readwrite', (s) => s.put(rec))
+  const res = await run('readwrite', (s) => s.put(rec))
+  const ok = res !== null
+  lastWrite = { key, ok, at: new Date().toISOString() }
+  return ok
+}
+
+// --- v88 diagnostics (temporary scaffolding while we chase the empty cache) ---
+export interface WriteStatus { key: string; ok: boolean; at: string }
+let lastWrite: WriteStatus | null = null
+export function getLastWrite(): WriteStatus | null { return lastWrite }
+
+export interface WarmStatus { at: string; ok: boolean; poCount: number; note: string }
+let lastWarm: WarmStatus | null = null
+export function getLastWarm(): WarmStatus | null { return lastWarm }
+
+// Every key currently in the cache store. This is the diagnostic that catches a
+// key MISMATCH (written under one user id, read under another) at a glance.
+export async function cacheAllKeys(): Promise<string[]> {
+  const keys = await run<IDBValidKey[]>('readonly', (s) => s.getAllKeys())
+  return (keys || []).map(String)
+}
+
+// Is IndexedDB usable at all in this browser/PWA context?
+export async function cacheAvailable(): Promise<boolean> {
+  return (await openDb()) !== null
 }
 
 // Read a cached value, or null if absent/unavailable.
@@ -156,9 +183,12 @@ interface RawLink { inspection_id: string; po_no: string; off_po: boolean }
 // and whenever connectivity returns. Fully fail-safe — never throws, no-ops
 // offline, and on any error simply leaves the previous cache in place.
 export async function warmPoCache(userId: string): Promise<void> {
+  const note = (ok: boolean, poCount: number, msg: string) => {
+    lastWarm = { at: new Date().toISOString(), ok, poCount, note: msg }
+  }
   try {
-    if (!userId) return
-    if (isOffline()) return
+    if (!userId) { note(false, 0, 'no userId'); return }
+    if (isOffline()) { note(false, 0, 'skipped: navigator.onLine=false'); return }
 
     const [posRes, inspRes, contRes, itemRes, linkRes] = await Promise.all([
       supabase.from('pos').select('id,po_no,customer_name,po_date,destination,created_at').order('created_at', { ascending: false }).limit(500),
@@ -168,7 +198,10 @@ export async function warmPoCache(userId: string): Promise<void> {
       supabase.from('inspection_pos').select('inspection_id,po_no,off_po'),
     ])
     // Any failure => don't half-write a cache that screens would trust.
-    if (posRes.error || inspRes.error || contRes.error || itemRes.error || linkRes.error) return
+    if (posRes.error || inspRes.error || contRes.error || itemRes.error || linkRes.error) {
+      note(false, 0, 'query error: ' + (posRes.error?.message || inspRes.error?.message || contRes.error?.message || itemRes.error?.message || linkRes.error?.message || '?'))
+      return
+    }
 
     const pos = (posRes.data as RawPo[]) || []
     const insps = (inspRes.data as RawInsp[]) || []
@@ -193,7 +226,8 @@ export async function warmPoCache(userId: string): Promise<void> {
       map.set(m.po_no, g)
     }
     const groups = [...map.values()].sort((a, b) => b.latest.localeCompare(a.latest))
-    await cacheSet(poListKey(userId), groups)
+    const listOk = await cacheSet(poListKey(userId), groups)
+    if (!listOk) { note(false, groups.length, 'PO list write FAILED (IndexedDB rejected it)'); return }
 
     // ---- Per-PO detail, fanned out from the same bulk rows ----
     const inspById = new Map(insps.map(i => [i.id, i]))
@@ -249,5 +283,9 @@ export async function warmPoCache(userId: string): Promise<void> {
       })
       await cacheSet(poStagesKey(userId, po), stages)
     }
-  } catch { /* ignore — warming is best-effort */ }
+    note(true, groups.length, 'ok')
+  } catch (e) {
+    // Still never throws into the UI — but now it records WHY it bailed.
+    note(false, 0, 'threw: ' + (e instanceof Error ? e.message : String(e)))
+  }
 }

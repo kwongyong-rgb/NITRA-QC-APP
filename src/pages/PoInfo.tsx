@@ -5,7 +5,7 @@ import type { Profile } from '../App'
 import * as XLSX from 'xlsx'
 import { sumLoadedByPart } from '../lib/poStatus'
 import PartPicker from '../components/PartPicker'
-import { isOffline } from '../lib/connectivity'
+import { isOffline, useOnline } from '../lib/connectivity'
 import { cacheGet, cacheSet, poInfoKey, type CachedPoInfo } from '../lib/refCache'
 
 // PO master info + ordered items for the PO detail page (Phase 1).
@@ -23,6 +23,8 @@ const HDR_QTY = ['qty', 'quantity', 'qty ordered', 'ordered qty', 'order qty', '
 
 export default function PoInfo({ po, profile, refreshKey }: { po: string; profile: Profile; refreshKey?: number }) {
   const { t } = useI18n()
+  // Ping-confirmed; see the note in Home.tsx about iOS navigator.onLine.
+  const online = useOnline()
   const [row, setRow] = useState<PoRow | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [loadedQty, setLoadedQty] = useState<Record<string, number>>({})
@@ -76,7 +78,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
 
   const saveInfo = async () => {
     if (!row || !editInfo) return
-    if (isOffline()) { setErr(t('offlinePoSetup')); return }
+    if (!online) { setErr(t('offlinePoSetup')); return }
     setBusy(true); setErr('')
     const { error } = await supabase.from('pos').update({
       customer_name: editInfo.customer_name.trim() || null,
@@ -95,7 +97,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     const qty = parseInt(addItem.qty, 10)
     if (!part) { setErr(t('partRequired')); return }
     if (!Number.isFinite(qty) || qty < 0) { setErr('Quantity must be a number.'); return }
-    if (isOffline()) { setErr(t('offlinePoSetup')); return }
+    if (!online) { setErr(t('offlinePoSetup')); return }
     setBusy(true); setErr('')
     const { error } = await supabase.from('po_items').upsert({ po_id: row.id, part_no: part, qty_ordered: qty }, { onConflict: 'po_id,part_no' })
     setBusy(false)
@@ -106,14 +108,14 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
   const updateQty = async (it: Item, v: string) => {
     const qty = parseInt(v, 10)
     if (!Number.isFinite(qty) || qty < 0 || !it.id) return
-    if (isOffline()) { setErr(t('offlinePoSetup')); return }
+    if (!online) { setErr(t('offlinePoSetup')); return }
     const { error } = await supabase.from('po_items').update({ qty_ordered: qty }).eq('id', it.id)
     if (error) setErr(error.message); else load()
   }
 
   const removeItem = async (it: Item) => {
     if (!it.id) return
-    if (isOffline()) { setErr(t('offlinePoSetup')); return }
+    if (!online) { setErr(t('offlinePoSetup')); return }
     if (!confirm(`Remove ${it.part_no} from this PO's order list?\n\n(Existing inspections and reports are NOT affected.)`)) return
     const { error } = await supabase.from('po_items').delete().eq('id', it.id)
     if (error) setErr(error.message); else load()
@@ -168,7 +170,7 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     if (!row || !review) return
     const good = review.filter(r => r.part_no.trim() && Number.isFinite(parseInt(r.qty, 10)))
     if (!good.length) { setErr('No valid rows to save. Fix the highlighted rows first.'); return }
-    if (isOffline()) { setErr(t('offlinePoSetup')); return }
+    if (!online) { setErr(t('offlinePoSetup')); return }
     setBusy(true); setErr('')
     const payload = good.map(r => ({ po_id: row.id, part_no: r.part_no.trim(), qty_ordered: parseInt(r.qty, 10) }))
     const { error } = await supabase.from('po_items').upsert(payload, { onConflict: 'po_id,part_no' })
