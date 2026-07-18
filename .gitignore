@@ -1,0 +1,33 @@
+# Dependencies — NEVER commit these.
+# They are reinstalled from package.json/package-lock.json on every build.
+# Committing them broke the Vercel deploys for v87/v88: node_modules contained
+# WINDOWS-only native binaries (@rolldown/binding-win32-x64-msvc,
+# @rollup/rollup-win32-x64-*), and Vercel builds on LINUX, so the build failed
+# even though it passed locally.
+node_modules/
+
+# Build output — Vercel rebuilds this from source on every deploy.
+dist/
+dist-ssr/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Local env files (secrets — must never reach the repo)
+.env
+.env.local
+.env.*.local
+
+# Editor / OS noise
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

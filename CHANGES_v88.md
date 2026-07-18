@@ -1,5 +1,39 @@
 # v88 — fix the iOS `navigator.onLine` bug + temporary offline-cache diagnostic
 
+---
+
+## ⚠️ DEPLOY FIX INCLUDED — read this first
+
+**v87 and v88 both FAILED to deploy on Vercel.** Production was stuck on
+`1988a23 Create CLAUDE.md` (2 days old), so **every offline test run against
+"v87" was actually testing the OLD pre-v87 app.** All conclusions drawn from
+those tests are void — including the apparent "empty cache" bug, which was
+almost certainly just the caching code not being present on the device.
+
+**Root cause:** the repo had **no `.gitignore`**. The workflow change (zips →
+Claude Code, where Kwong commits with GitHub Desktop) meant the `V87B` commit
+swept in **14,825 `node_modules` files**, including WINDOWS-only native binaries:
+- `@rolldown/binding-win32-x64-msvc/rolldown-binding.win32-x64-msvc.node`
+- `@rollup/rollup-win32-x64-gnu/rollup.win32-x64-gnu.node`
+
+Vercel builds on **Linux**. It checked out a repo that already contained a
+`node_modules` full of Windows binaries and could not build — while the identical
+build passed locally on Windows. Classic "works on my machine".
+
+**Fix in this batch:**
+- Added a proper `.gitignore` (`node_modules/`, `dist/`, `*.tsbuildinfo`, `.env*`).
+- `git rm -r --cached node_modules dist` — untracked from the repo index only;
+  **the files remain on disk untouched**.
+- Verified `package.json` + `package-lock.json` are still tracked (Vercel needs
+  them to install), and that a full `tsc -b --force` + `vite build` still passes.
+
+**Lesson for future sessions:** "Vercel finished building" is NOT the same as
+"the new code is live". Always confirm the **deployed commit hash** matches the
+commit you just pushed before interpreting any device test.
+
+---
+
+
 Follow-up to v87, driven by live testing on an **iPhone**: the PO list opened
 offline (pill correctly said Offline / 离线, login survived, app booted from the
 service worker) but **no POs were displayed**, and the empty card showed the
