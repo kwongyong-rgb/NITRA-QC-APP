@@ -14,7 +14,7 @@ import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
 import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
-import { cacheGet } from '../lib/refCache'
+import { cacheGet, cacheSet, inspFullKey } from '../lib/refCache'
 import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
 import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId, syncPendingMedia } from '../lib/offlineMedia'
 import { useOnline } from '../lib/connectivity'
@@ -153,21 +153,39 @@ export default function Inspection({ profile }: { profile: Profile }) {
     const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
     let row: Insp
     let pending = false
+    let offlineCached = false          // restoring a SERVER inspection from cache, offline
+    let cachedDefects: Defect[] = []
     if (i && !ie) {
       row = i as Insp
     } else {
       // Not on the server — is this an offline-created inspection on this device?
       const pend = await getPendingInspection(id!)
-      if (!pend) {
-        if (loadedOnceRef.current && isNetworkErr(ie)) { setOfflineNote(true); return }
+      if (pend) {
+        // Already loaded this pending inspection? Don't overwrite the live optimistic
+        // edits with the queued copy (which can lag a render behind) — the trailing
+        // load() after each edit would otherwise revert the tap.
+        if (loadedOnceRef.current) { setIsPending(true); return }
+        row = pend as unknown as Insp
+        pending = true
+      } else if (isNetworkErr(ie)) {
+        // Offline, and NOT an offline-created inspection: this is a server
+        // inspection with no live connection. Restore the copy cached on its last
+        // successful online load, so a fresh mount offline (navigating away and
+        // back, or a flaky-wifi inspection that synced then dropped signal)
+        // doesn't dead-end on the red error card.
+        const cached = await cacheGet<{ row: Insp; defects: Defect[] }>(inspFullKey(profile.id, id!))
+        if (cached?.row) {
+          row = cached.row
+          cachedDefects = cached.defects || []
+          offlineCached = true
+        } else if (loadedOnceRef.current) {
+          setOfflineNote(true); return          // keep the working screen (v82)
+        } else {
+          setLoadErr(t('offlineCantOpen')); return   // never cached on this device
+        }
+      } else {
         setLoadErr(ie?.message || 'Inspection not found'); return
       }
-      // Already loaded this pending inspection? Don't overwrite the live optimistic
-      // edits with the queued copy (which can lag a render behind) — the trailing
-      // load() after each edit would otherwise revert the tap.
-      if (loadedOnceRef.current) { setIsPending(true); return }
-      row = pend as unknown as Insp
-      pending = true
     }
     setIsPending(pending)
     const fi: Insp = {
@@ -190,19 +208,35 @@ export default function Inspection({ profile }: { profile: Profile }) {
     }
     setSku(skuRow)
     loadedOnceRef.current = true  // one full load succeeded — offline reloads may now keep the screen
-    if (!pending) setOfflineNote(false)  // a live server load means we're online
-    const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
-    setDefects((d as Defect[]) || [])
-    const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
-    setServerPhotos((p as Photo[]) || [])
+    if (offlineCached) {
+      // Restored from cache. Server defects/photos need the network, so use the
+      // cached defects and skip the (doomed) server queries. Offline-taken photos
+      // still appear via the separate media-queue effect.
+      setOfflineNote(true)
+      setDefects(cachedDefects)
+      setServerPhotos([])
+    } else {
+      if (!pending) setOfflineNote(false)  // a live server load means we're online
+      const { data: d } = await supabase.from('defects').select('*').eq('inspection_id', id).order('created_at')
+      const defs = (d as Defect[]) || []
+      setDefects(defs)
+      const { data: p } = await supabase.from('photos').select('*').eq('inspection_id', id).order('created_at')
+      setServerPhotos((p as Photo[]) || [])
+      // Cache the full row + defects so an offline remount can restore this server
+      // inspection. Only on a genuine live load (i && !ie) — never overwrite the
+      // cache with a pending inspection's partial row.
+      if (i && !ie) void cacheSet(inspFullKey(profile.id, id!), { row: i, defects: defs })
+    }
     if (draft) {
       const serverContent = JSON.stringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
       if (JSON.stringify(draft.data) !== serverContent) setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
       else await clearLocalDraft('inspection', id!)
     }
-  }, [id])
+  }, [id, profile.id, t])
 
-  useEffect(() => { load() }, [load])
+  // load()'s setState calls all run after awaits (no synchronous cascade); the
+  // rule mis-traces once the async body grows past a certain size.
+  useEffect(() => { load() }, [load]) // eslint-disable-line react-hooks/set-state-in-effect
 
   // Read the offline media queue independently of load(). Runs on open, after any
   // photo change (mediaTick), and when connectivity flips — so a photo taken

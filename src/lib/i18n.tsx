@@ -162,6 +162,7 @@ const STR = {
   offlineSaved:   { en: 'You’re offline — changes are saved on this device and will sync when the connection is back.', zh: '您已离线——更改已保存在本设备，恢复联网后将自动同步。' },
   offlineCantSubmit: { en: 'You’re offline. Your work is saved on this device — reconnect to submit for approval.', zh: '您已离线。工作已保存在本设备——请恢复联网后再提交审批。' },
   notSyncedYet:   { en: 'Not synced yet — this inspection was created offline and is saved on this device. It will upload automatically when you’re back online.', zh: '尚未同步——此检验为离线创建，已保存在本设备。恢复联网后将自动上传。' },
+  offlineCantOpen:{ en: 'You’re offline and this inspection hasn’t been opened on this device yet, so there’s no local copy to show. Reconnect once to open it — after that it works offline.', zh: '您已离线，且此检验尚未在本设备上打开过，因此没有本地副本可显示。请联网打开一次——之后即可离线使用。' },
   sampleSettingsMissing: { en: 'Sample-size settings aren’t available yet — connect once so they load, then you can start inspections offline.', zh: '抽样设置尚未加载——请先联网一次以加载，之后即可离线开始检验。' },
   offlineCachedData:  { en: 'You’re offline — showing data saved on this device at', zh: '您已离线——显示本设备于以下时间保存的数据：' },
   offlineNoCachedPos: { en: 'You’re offline and no PO data is saved on this device yet. Connect once while signed in, and your POs will be available offline from then on.', zh: '您已离线，且本设备尚未保存订单数据。请在登录状态下联网一次，之后即可离线查看订单。' },

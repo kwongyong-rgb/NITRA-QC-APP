@@ -146,6 +146,13 @@ export const poHubKey = (uid: string, po: string) => `po_hub:${uid}:${po}`
 export const poInfoKey = (uid: string, po: string) => `po_info:${uid}:${po}`
 export const poStagesKey = (uid: string, po: string) => `po_stages:${uid}:${po}`
 
+// v92 — the full row + defects of a SERVER inspection, cached on its last
+// successful online load, so a fresh mount while offline (navigate away and back,
+// or a flaky-wifi inspection that synced then lost signal) can restore it instead
+// of dead-ending. Namespaced per user like the PO keys — inspection data is
+// RLS-scoped per inspector, and IndexedDB survives sign-out.
+export const inspFullKey = (uid: string, id: string) => `insp_full:${uid}:${id}`
+
 // Row shapes as they come back from the bulk queries below.
 interface RawInsp { id: string; po_no: string | null; part_no: string; status: string; updated_at: string; inspector_id: string }
 interface RawCont { id: string; po_no: string | null; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string; data: unknown }
