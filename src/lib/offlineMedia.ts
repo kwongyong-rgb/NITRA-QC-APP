@@ -151,6 +151,14 @@ async function removePendingRow(id: string): Promise<void> {
   await run(ROWS, 'readwrite', (s) => s.delete(id))
 }
 
+// Discard a queued (not-yet-uploaded) photo entirely: its blob AND its row. Used
+// when the inspector deletes an offline photo — a server delete would hit 0 rows
+// (it isn't uploaded yet) and look like a failure.
+export async function deleteQueuedPhoto(rowId: string, storagePath: string): Promise<void> {
+  await removeLocalMedia(storagePath)
+  await removePendingRow(rowId)
+}
+
 // Queued photos for one inspection, so the Inspection screen can show them
 // immediately instead of appearing to have lost them. Scoped to the user.
 export async function getPendingPhotosFor(inspectionId: string, userId: string): Promise<PendingPhotoRow[]> {

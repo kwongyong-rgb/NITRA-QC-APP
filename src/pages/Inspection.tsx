@@ -16,7 +16,7 @@ import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
 import { cacheGet, cacheSet, inspFullKey } from '../lib/refCache'
 import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
-import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId, syncPendingMedia } from '../lib/offlineMedia'
+import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId, syncPendingMedia, deleteQueuedPhoto } from '../lib/offlineMedia'
 import { useOnline } from '../lib/connectivity'
 import SharedPosCard from '../components/SharedPosCard'
 
@@ -168,18 +168,23 @@ export default function Inspection({ profile }: { profile: Profile }) {
         row = pend as unknown as Insp
         pending = true
       } else if (isNetworkErr(ie)) {
-        // Offline, and NOT an offline-created inspection: this is a server
-        // inspection with no live connection. Restore the copy cached on its last
-        // successful online load, so a fresh mount offline (navigating away and
-        // back, or a flaky-wifi inspection that synced then dropped signal)
+        // CRITICAL GUARD (same as the pending path above): if we've already loaded
+        // once this mount, DON'T re-restore the cached row. A trailing load() —
+        // fired after marking a result or taking a photo — would otherwise clobber
+        // the live optimistic edit with the cached copy (which is only as fresh as
+        // the last ONLINE load), reverting the tap and popping a spurious "unsaved
+        // changes" prompt. The in-memory state + localDraft are authoritative here.
+        if (loadedOnceRef.current) { setOfflineNote(true); return }
+        // Offline, first load this mount, NOT an offline-created inspection: this is
+        // a server inspection with no live connection. Restore the copy cached on
+        // its last successful online load, so a fresh mount offline (navigating away
+        // and back, or a flaky-wifi inspection that synced then dropped signal)
         // doesn't dead-end on the red error card.
         const cached = await cacheGet<{ row: Insp; defects: Defect[] }>(inspFullKey(profile.id, id!))
         if (cached?.row) {
           row = cached.row
           cachedDefects = cached.defects || []
           offlineCached = true
-        } else if (loadedOnceRef.current) {
-          setOfflineNote(true); return          // keep the working screen (v82)
         } else {
           setLoadErr(t('offlineCantOpen')); return   // never cached on this device
         }
@@ -229,8 +234,24 @@ export default function Inspection({ profile }: { profile: Profile }) {
     }
     if (draft) {
       const serverContent = JSON.stringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
-      if (JSON.stringify(draft.data) !== serverContent) setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
-      else await clearLocalDraft('inspection', id!)
+      if (JSON.stringify(draft.data) !== serverContent) {
+        if (offlineCached) {
+          // Offline restore of a server inspection: localDraft holds the freshest
+          // edits (the cached row is only as new as the last online load), and
+          // there's no server copy to conflict with — so apply it SILENTLY rather
+          // than popping the "unsaved changes" prompt, which confused users here.
+          const dd = draft.data as { form_data?: Insp['form_data']; summary?: Insp['summary']; pallet_data?: Insp['pallet_data'] }
+          setInsp(prev => prev ? {
+            ...prev,
+            form_data: dd.form_data ?? prev.form_data,
+            summary: dd.summary ?? prev.summary,
+            pallet_data: dd.pallet_data ?? prev.pallet_data,
+          } : prev)
+        } else {
+          // Online: the server may have a different version — let the user decide.
+          setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
+        }
+      } else await clearLocalDraft('inspection', id!)
     }
   }, [id, profile.id, t])
 
@@ -895,6 +916,14 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   const deletePhoto = async (p: Photo) => {
     if (!confirm('Delete this photo/video? This cannot be undone.')) return
+    // A not-yet-uploaded offline photo lives only in the local media queue, not on
+    // the server — deleting it via the server would hit 0 rows and look like a
+    // failure. Remove it locally instead.
+    if (queuedPhotos.some(q => q.id === p.id)) {
+      await deleteQueuedPhoto(p.id, p.storage_path)
+      setMediaTick(t => t + 1)   // re-read the queue so it disappears from the grid
+      return
+    }
     const { data, error } = await supabase.from('photos').delete().eq('id', p.id).select('id')
     if (error) { alert('Delete failed: ' + error.message); return }
     if (!data || data.length === 0) { alert('Delete was blocked by the database (photos RLS). Run migration 06 in the Supabase SQL Editor, then try again.'); return }

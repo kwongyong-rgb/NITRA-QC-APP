@@ -1,5 +1,35 @@
 # v92 — offline restore of server inspections (fixes the "Could not load" crash)
 
+---
+
+## Three follow-up bugs found in device testing and fixed (v92B)
+
+The first cut of v92 restored the inspection but introduced/exposed three bugs.
+Two shared one root cause.
+
+**Bugs 1 & 3 — a Fail reverted to NA after taking a photo, and a spurious
+"Unsaved changes found on this device" prompt appeared.** Root cause: the new
+offline-restore branch re-read the *cached* inspection row on **every** `load()`
+call, and unlike the pending-inspection path it had **no `loadedOnceRef` guard**.
+So: you press F (held in memory + `localDraft`) → taking a photo fires a trailing
+`load()` → it re-restored the cached row (which predates your F, since the cache
+only updates on an ONLINE load) → your F was clobbered → the `localDraft`-vs-cache
+mismatch then popped the restore prompt. **Fix:** the offline-restore branch now
+carries the same `loadedOnceRef` early-return guard as the pending path — after
+the first load this mount, `load()` keeps the live optimistic state instead of
+re-restoring. And on the legitimate first offline remount, offline edits from
+`localDraft` are **applied silently** (offline, the device copy is authoritative —
+there's no server version to conflict with) instead of prompting, which is what
+confused you.
+
+**Bug 2 — "delete failed" when deleting an offline (not-yet-uploaded) photo.**
+A queued photo lives only in the local media queue, not on the server, so the
+server `delete()` hit 0 rows and reported failure. **Fix:** `deletePhoto` now
+detects a queued photo and removes it locally (blob + row) via new
+`deleteQueuedPhoto()`, refreshing the grid.
+
+---
+
 Fixes a crash found in v91 device testing: navigating **away from an inspection
 and back while offline** dead-ended on a red *"Could not load inspection /
 TypeError: Load failed"* card.
