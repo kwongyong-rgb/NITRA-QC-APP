@@ -189,11 +189,17 @@ export async function pendingMediaStats(userId: string): Promise<{ count: number
 //
 // Idempotent: the upload uses upsert (same client-minted path), and a row whose
 // blob is already gone is treated as "file already uploaded, just insert".
+// v95 TEMPORARY diagnostic — records why a media row failed to sync, so a stuck
+// ⏳ counter can be diagnosed on a device with no console. Remove once resolved.
+let lastMediaSyncError = ''
+export function getLastMediaSyncError(): string { return lastMediaSyncError }
+
 let syncing = false
 export async function syncPendingMedia(userId?: string): Promise<number> {
   if (syncing) return 0
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return 0
   syncing = true
+  lastMediaSyncError = ''        // reset each run; holds the last failure seen this run
   let done = 0
   try {
     for (const row of await getAllPendingRows()) {
@@ -206,7 +212,9 @@ export async function syncPendingMedia(userId?: string): Promise<number> {
               upsert: true,
               contentType: media.mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
             })
-          if (upErr) continue          // leave queued, retry next time
+          if (upErr) { lastMediaSyncError = 'upload: ' + upErr.message; continue }   // leave queued, retry next time
+        } else {
+          lastMediaSyncError = 'blob missing for ' + row.storage_path
         }
         // Insert the row. If the parent inspection isn't on the server yet this
         // fails — leave it queued rather than losing the photo.
@@ -220,7 +228,7 @@ export async function syncPendingMedia(userId?: string): Promise<number> {
           piece_no: row.piece_no,
           comment: row.comment,
         })
-        if (insErr) continue
+        if (insErr) { lastMediaSyncError = 'insert: ' + insErr.message; continue }
 
         // A Fail photo taken offline could not be linked to a defect, because the
         // defect row didn't exist yet (offlineSync.rebuildDefects creates it at
@@ -244,8 +252,8 @@ export async function syncPendingMedia(userId?: string): Promise<number> {
         await removeLocalMedia(row.storage_path)
         await removePendingRow(row.id)
         done++
-      } catch { /* this one stays queued; carry on with the rest */ }
+      } catch (e) { lastMediaSyncError = 'row: ' + (e instanceof Error ? e.message : String(e)) /* stays queued */ }
     }
-  } catch { /* ignore — anything unsynced stays queued */ } finally { syncing = false }
+  } catch (e) { lastMediaSyncError = 'run: ' + (e instanceof Error ? e.message : String(e)) } finally { syncing = false }
   return done
 }

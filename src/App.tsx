@@ -5,7 +5,7 @@ import { useI18n } from './lib/i18n'
 import { useOnline } from './lib/connectivity'
 import { warmRefCache, warmPoCache } from './lib/refCache'
 import { syncPendingInspections } from './lib/offlineSync'
-import { syncPendingMedia, pendingMediaStats } from './lib/offlineMedia'
+import { syncPendingMedia, pendingMediaStats, getLastMediaSyncError } from './lib/offlineMedia'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import NewInspection from './pages/NewInspection'
@@ -58,6 +58,7 @@ export default function App() {
   const [wide, setWide] = useState(window.innerWidth >= 900)
   const [pendingCount, setPendingCount] = useState(0)
   const [mediaPending, setMediaPending] = useState<{ count: number; bytes: number }>({ count: 0, bytes: 0 })
+  const [mediaSyncErr, setMediaSyncErr] = useState('')   // v95 temporary diagnostic
   const { lang, setLang, t } = useI18n()
   const online = useOnline()
   const nav = useNavigate()
@@ -146,7 +147,7 @@ export default function App() {
     const tick = async () => {
       if (online) await syncPendingMedia(profile.id)
       const s = await pendingMediaStats(profile.id)
-      if (alive) setMediaPending(s)
+      if (alive) { setMediaPending(s); setMediaSyncErr(getLastMediaSyncError()) }
     }
     void tick()
     const id = window.setInterval(tick, 15_000)
@@ -251,6 +252,13 @@ export default function App() {
           <button onClick={async () => { await supabase.auth.signOut(); nav('/') }}>{t('signOut')}</button>
         </nav>
       </header>
+      {/* v95 TEMPORARY diagnostic — shows why offline photos aren't uploading, so a
+          stuck ⏳ counter can be diagnosed on-device. Remove once resolved. */}
+      {mediaPending.count > 0 && mediaSyncErr && (
+        <div style={{ background: '#7A1512', color: '#FDE7E6', fontSize: 12, padding: '6px 14px', wordBreak: 'break-all' }}>
+          🔧 {mediaPending.count} media waiting · last sync error: {mediaSyncErr}
+        </div>
+      )}
       <div style={showSidebar ? { display: 'flex', alignItems: 'flex-start' } : undefined}>
       {showSidebar && (
         <aside style={{ width: 216, flexShrink: 0, position: 'sticky', top: 0,
