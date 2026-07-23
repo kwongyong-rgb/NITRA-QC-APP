@@ -14,7 +14,7 @@ import { openInspectionReport } from '../lib/report'
 import type { Profile } from '../App'
 import EmailModal from '../components/EmailModal'
 import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraft'
-import { cacheGet, cacheSet, inspFullKey } from '../lib/refCache'
+import { cacheGet, cacheSet, inspFullKey, cachePoHubInsp } from '../lib/refCache'
 import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
 import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId, syncPendingMedia, deleteQueuedPhoto } from '../lib/offlineMedia'
 import { useOnline } from '../lib/connectivity'
@@ -281,7 +281,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
       // Cache the full row + defects so an offline remount can restore this server
       // inspection. Only on a genuine live load (i && !ie) — never overwrite the
       // cache with a pending inspection's partial row.
-      if (i && !ie) void cacheSet(inspFullKey(profile.id, id!), { row: i, defects: defs })
+      if (i && !ie) {
+        void cacheSet(inspFullKey(profile.id, id!), { row: i, defects: defs })
+        // Keep it visible on its PO page offline even if it was created after the
+        // PO page was last cached (v94 — see cachePoHubInsp).
+        if (row.po_no) void cachePoHubInsp(profile.id, row.po_no, {
+          id: row.id, part_no: row.part_no, status: row.status,
+          updated_at: (i as { updated_at?: string }).updated_at || new Date().toISOString(),
+          inspector_id: row.inspector_id, off_po: false,
+        })
+      }
     }
     if (draft) {
       // Canonical compare (see stableStringify): JSONB reorders keys on the server

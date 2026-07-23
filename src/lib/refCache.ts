@@ -153,6 +153,23 @@ export const poStagesKey = (uid: string, po: string) => `po_stages:${uid}:${po}`
 // RLS-scoped per inspector, and IndexedDB survives sign-out.
 export const inspFullKey = (uid: string, id: string) => `insp_full:${uid}:${id}`
 
+// v94 — fold one inspection into its PO-page cache. An inspection created ONLINE
+// and then worked on OFFLINE wouldn't appear on its PO page offline if the PO
+// cache was last written (warm / PoHub load) BEFORE it existed — and offline the
+// PO page can't refresh, so it was unreachable. Called when the Inspection screen
+// loads it online: upsert it into the cached hub list (dedup by id), preserving
+// everything else. If no hub cache exists yet, seed a minimal one; a later online
+// PoHub load / warm overwrites it with the full picture.
+export async function cachePoHubInsp(uid: string, poNo: string, insp: CachedHubInsp): Promise<void> {
+  if (!uid || !poNo) return
+  const key = poHubKey(uid, poNo)
+  const existing = (await cacheGet<CachedPoHub>(key)) || { insps: [], conts: [] }
+  const insps = existing.insps.filter(i => i.id !== insp.id)
+  insps.unshift(insp)
+  insps.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  await cacheSet(key, { insps, conts: existing.conts })
+}
+
 // Row shapes as they come back from the bulk queries below.
 interface RawInsp { id: string; po_no: string | null; part_no: string; status: string; updated_at: string; inspector_id: string }
 interface RawCont { id: string; po_no: string | null; container_no: string; seal_no: string; status: string; insp_status: string; updated_at: string; inspector_id: string; data: unknown }
