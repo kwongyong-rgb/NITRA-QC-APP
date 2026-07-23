@@ -91,7 +91,21 @@ function run<T>(store: string, mode: IDBTransactionMode, make: (s: IDBObjectStor
 // Store the captured file under its future storage path. Returns false if the
 // write was rejected (e.g. the device is out of storage) so the caller can TELL
 // the user rather than silently losing their photo.
-export async function saveLocalMedia(path: string, blob: Blob, mediaType: 'photo' | 'video'): Promise<boolean> {
+//
+// CRITICAL (iOS): a photo/video straight from <input capture> is a File that
+// REFERENCES a temporary file on disk — not the bytes. Storing that File in
+// IndexedDB and reading it back later can yield an EMPTY (0-byte) blob once iOS
+// clears the temp file, which surfaced at sync as "upload: No content provided"
+// and left the photo stuck in the queue forever. So we read the bytes into an
+// in-memory Blob NOW, while the file is still valid (right after capture), and
+// store THAT — IndexedDB then holds the actual bytes, not a reference.
+export async function saveLocalMedia(path: string, file: Blob, mediaType: 'photo' | 'video'): Promise<boolean> {
+  let blob: Blob = file
+  try {
+    const buf = await file.arrayBuffer()
+    blob = new Blob([buf], { type: file.type || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg') })
+  } catch { /* fall back to the original File — better than nothing */ }
+  if (!blob.size) return false          // nothing was captured; don't queue an empty shell
   const rec: LocalMedia = { path, blob, mediaType, size: blob.size, savedAt: new Date().toISOString() }
   return (await run(BLOBS, 'readwrite', (s) => s.put(rec))) !== null
 }
@@ -206,16 +220,22 @@ export async function syncPendingMedia(userId?: string): Promise<number> {
       if (userId && row.inspector_id !== userId) continue
       try {
         const media = await getLocalMedia(row.storage_path)
-        if (media?.blob) {
-          const { error: upErr } = await supabase.storage.from('qc-photos')
-            .upload(row.storage_path, media.blob, {
-              upsert: true,
-              contentType: media.mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
-            })
-          if (upErr) { lastMediaSyncError = 'upload: ' + upErr.message; continue }   // leave queued, retry next time
-        } else {
-          lastMediaSyncError = 'blob missing for ' + row.storage_path
+        // Unrecoverable: no blob, or an empty (0-byte) blob — e.g. photos captured
+        // before the iOS materialize-on-save fix, whose bytes are gone. Retrying
+        // forever would wedge the ⏳ counter, so drop them (the image no longer
+        // exists to upload) and move on. The inspector re-takes the shot.
+        if (!media?.blob || !media.blob.size) {
+          lastMediaSyncError = 'discarded an empty photo (retake it) — ' + row.storage_path
+          await removeLocalMedia(row.storage_path)
+          await removePendingRow(row.id)
+          continue
         }
+        const { error: upErr } = await supabase.storage.from('qc-photos')
+          .upload(row.storage_path, media.blob, {
+            upsert: true,
+            contentType: media.mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
+          })
+        if (upErr) { lastMediaSyncError = 'upload: ' + upErr.message; continue }   // leave queued, retry next time
         // Insert the row. If the parent inspection isn't on the server yet this
         // fails — leave it queued rather than losing the photo.
         const { error: insErr } = await supabase.from('photos').insert({
