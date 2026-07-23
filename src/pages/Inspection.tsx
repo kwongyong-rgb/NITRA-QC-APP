@@ -82,6 +82,57 @@ const looksLikeHtml = (s: string) => /<(\/?)(b|i|u|p|ul|ol|li|br|strong|em|span|
 const escHtml = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
 const toHtml = (s: string) => (!s ? '' : looksLikeHtml(s) ? s : escHtml(s).replace(/\n/g, '<br>'))
 
+// Order-independent, undefined-dropping stringify. Postgres stores form_data as
+// JSONB, which REORDERS object keys on every round-trip, and toggling a result to
+// unset leaves an `undefined`. Plain JSON.stringify is order-sensitive, so it
+// reported two IDENTICAL inspections as "different" and popped the restore prompt
+// on inspections done entirely online. Comparing canonically fixes that.
+function stableStringify(v: unknown): string {
+  const norm = (x: unknown): unknown => {
+    if (x === null || typeof x !== 'object') return x
+    if (Array.isArray(x)) return x.map(norm)
+    const o = x as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(o).sort()) if (o[k] !== undefined) out[k] = norm(o[k])
+    return out
+  }
+  return JSON.stringify(norm(v))
+}
+
+// Count recorded marks (P/F/NA) and fails across the visual + technical results.
+function summarizeFd(fd: unknown): { marks: number; fails: number } {
+  const f = (fd || {}) as { results?: Record<string, string>; meas_results?: Record<string, string> }
+  let marks = 0, fails = 0
+  for (const map of [f.results, f.meas_results]) {
+    for (const v of Object.values(map || {})) {
+      if (v === 'P' || v === 'F' || v === 'NA') marks++
+      if (v === 'F') fails++
+    }
+  }
+  return { marks, fails }
+}
+
+// A short, human-readable list of how the device copy differs from the server —
+// so the inspector can tell which is the one to keep.
+function describeDraftDiff(device: unknown, server: unknown): string[] {
+  const dev = (device || {}) as { form_data?: unknown; summary?: Record<string, string>; pallet_data?: unknown }
+  const srv = (server || {}) as { form_data?: unknown; summary?: Record<string, string>; pallet_data?: unknown }
+  const out: string[] = []
+  const d = summarizeFd(dev.form_data), s = summarizeFd(srv.form_data)
+  if (d.marks !== s.marks || d.fails !== s.fails) {
+    out.push(`Marks — this device: ${d.marks} (${d.fails} fail${d.fails === 1 ? '' : 's'}) · server: ${s.marks} (${s.fails} fail${s.fails === 1 ? '' : 's'})`)
+  }
+  const dDisp = (dev.summary?.disposition_custom || dev.summary?.disposition || '').trim()
+  const sDisp = (srv.summary?.disposition_custom || srv.summary?.disposition || '').trim()
+  if (dDisp !== sDisp) out.push(`Disposition — this device: ${dDisp || '(none)'} · server: ${sDisp || '(none)'}`)
+  const dRem = (dev.summary?.corrective_action || dev.summary?.remarks || '').trim()
+  const sRem = (srv.summary?.corrective_action || srv.summary?.remarks || '').trim()
+  if (dRem !== sRem) out.push('Remarks / corrective action differ')
+  if (stableStringify(dev.pallet_data || {}) !== stableStringify(srv.pallet_data || {})) out.push('Pallet packing differs')
+  if (!out.length) out.push('Only minor differences.')
+  return out
+}
+
 // Custom-disposition severity buckets → banner colour on the report.
 const DISP_SEVERITIES: { cls: string; label: string; color: string }[] = [
   { cls: 'pass',    label: 'Approved (green)', color: '#1F8A4C' },
@@ -145,7 +196,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [logoUrl, setLogoUrl] = useState('')
   const [customDisps, setCustomDisps] = useState<CustomDisp[]>([])
   const [dispSaveChecked, setDispSaveChecked] = useState(false)
-  const [restore, setRestore] = useState<{ form_data?: unknown; summary?: unknown; pallet_data?: unknown } | null>(null)
+  const [restore, setRestore] = useState<{ data: { form_data?: unknown; summary?: unknown; pallet_data?: unknown }; savedAt: string; diff: string[] } | null>(null)
   const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
 
   const load = useCallback(async () => {
@@ -233,8 +284,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
       if (i && !ie) void cacheSet(inspFullKey(profile.id, id!), { row: i, defects: defs })
     }
     if (draft) {
-      const serverContent = JSON.stringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
-      if (JSON.stringify(draft.data) !== serverContent) {
+      // Canonical compare (see stableStringify): JSONB reorders keys on the server
+      // round-trip, so a plain JSON.stringify falsely flagged identical inspections
+      // and popped the prompt on all-online work. This compares by VALUE.
+      const serverCanon = stableStringify({ form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data })
+      if (stableStringify(draft.data) !== serverCanon) {
         if (offlineCached) {
           // Offline restore of a server inspection: localDraft holds the freshest
           // edits (the cached row is only as new as the last online load), and
@@ -248,8 +302,13 @@ export default function Inspection({ profile }: { profile: Profile }) {
             pallet_data: dd.pallet_data ?? prev.pallet_data,
           } : prev)
         } else {
-          // Online: the server may have a different version — let the user decide.
-          setRestore(draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown })
+          // Online AND genuinely different: let the user decide, and show them WHAT
+          // differs plus WHEN the device copy was saved, so they can pick correctly.
+          setRestore({
+            data: draft.data as { form_data?: unknown; summary?: unknown; pallet_data?: unknown },
+            savedAt: draft.updatedAt,
+            diff: describeDraftDiff(draft.data, { form_data: fi.form_data, summary: fi.summary, pallet_data: fi.pallet_data }),
+          })
         }
       } else await clearLocalDraft('inspection', id!)
     }
@@ -318,7 +377,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   const applyRestore = async () => {
     if (!insp || !restore) return
-    const r = restore
+    const r = restore.data
     const next = {
       ...insp,
       form_data: (r.form_data as Insp['form_data']) ?? insp.form_data,
@@ -1005,7 +1064,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {restore && (
         <div className="card" style={{ borderColor: 'var(--amber)', background: 'var(--amber-bg)', marginBottom: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('restoreTitle')}</div>
-          <div style={{ fontSize: 13, marginBottom: 10 }}>{t('restoreBody')}</div>
+          <div style={{ fontSize: 13, marginBottom: 8 }}>{t('restoreBody')}</div>
+          <div style={{ fontSize: 12.5, marginBottom: 8 }}>
+            <b>{t('restoreSavedAt')}:</b> {new Date(restore.savedAt).toLocaleString()}
+          </div>
+          <div style={{ fontSize: 12.5, background: '#fff', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('restoreDiffTitle')}</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {restore.diff.map((line, i) => <li key={i} style={{ marginBottom: 2 }}>{line}</li>)}
+            </ul>
+          </div>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn" onClick={applyRestore}>{t('restoreBtn')}</button>
             <button className="btn ghost" onClick={discardRestore}>{t('restoreDiscard')}</button>
