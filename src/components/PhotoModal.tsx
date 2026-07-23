@@ -95,9 +95,9 @@ export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string,
   return (
     <div style={{ display: 'flex', gap: 8 }}>
       <input ref={photoRef} type="file" accept="image/*" capture="environment" hidden
-        onChange={e => { const f = e.target.files?.[0]; if (f) upload(f,'photo'); e.currentTarget.value='' }} />
+        onChange={async e => { const input = e.currentTarget; const f = e.target.files?.[0]; if (f) await upload(f,'photo'); input.value='' }} />
       <input ref={videoRef} type="file" accept="video/*" capture="environment" hidden
-        onChange={e => { const f = e.target.files?.[0]; if (f) upload(f,'video'); e.currentTarget.value='' }} />
+        onChange={async e => { const input = e.currentTarget; const f = e.target.files?.[0]; if (f) await upload(f,'video'); input.value='' }} />
       <button className="btn ghost" style={{ flex: 1 }} disabled={uploading} onClick={() => photoRef.current?.click()}>
         📷 {label || 'Photo'}
       </button>

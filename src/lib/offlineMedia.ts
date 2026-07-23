@@ -235,7 +235,20 @@ export async function syncPendingMedia(userId?: string): Promise<number> {
             upsert: true,
             contentType: media.mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
           })
-        if (upErr) { lastMediaSyncError = 'upload: ' + upErr.message; continue }   // leave queued, retry next time
+        if (upErr) {
+          // "No content provided" / empty body = the blob's bytes are gone (a File
+          // reference from before the materialize-on-save fix — its `.size` can
+          // still read non-zero, so a size check misses it). Unrecoverable; drop it
+          // so the counter clears instead of retrying forever. The inspector
+          // re-takes the shot with the fixed capture.
+          if (/no content|content.*provided|empty|0 bytes/i.test(upErr.message)) {
+            lastMediaSyncError = 'discarded an empty photo (please re-take it)'
+            await removeLocalMedia(row.storage_path)
+            await removePendingRow(row.id)
+            continue
+          }
+          lastMediaSyncError = 'upload: ' + upErr.message; continue   // transient — leave queued, retry
+        }
         // Insert the row. If the parent inspection isn't on the server yet this
         // fails — leave it queued rather than losing the photo.
         const { error: insErr } = await supabase.from('photos').insert({
