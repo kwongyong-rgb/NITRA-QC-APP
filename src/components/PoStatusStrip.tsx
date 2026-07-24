@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useI18n, type Bi } from '../lib/i18n'
 import { computeStages, getOrCreatePoId, type PoStages, type StageResult, type StageUnit } from '../lib/poStatus'
 import { cacheGet, cacheSet, poStagesKey } from '../lib/refCache'
+import { isOffline } from '../lib/connectivity'
 import type { Profile } from '../App'
 
 // The PO command center's status strip: PO Ordered Items ▸ Inspection ▸ Loading,
@@ -44,6 +45,9 @@ export default function PoStatusStrip({ po, profile, refreshKey }: { po: string;
   const load = useCallback(async () => {
     const key = poStagesKey(profile.id, po)
     try {
+      // Known-offline: skip the doomed reads (they hang on a network timeout) and
+      // go straight to the cache fallback below (v101).
+      if (isOffline()) throw new Error('offline')
       // getOrCreatePoId self-guards against the offline lazy-create (v87).
       const poId = await getOrCreatePoId(po, profile.role === 'admin')
       const linkRes = await supabase.from('inspection_pos').select('inspection_id').eq('po_no', po)

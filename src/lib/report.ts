@@ -6,6 +6,7 @@
 import { supabase } from './supabase'
 import { SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, type Bi } from './standard'
 import { evaluateAll, emptyFormData, type FormData, type PFNA } from './rules'
+import { computeOutcomes, type OutcomeRow } from './outcome'
 
 type Lang = 'en' | 'zh'
 
@@ -145,7 +146,17 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
     // ── Rule outcome ──
     const allFormItems = SECTIONS.flatMap(s => s.items.map(i => ({ key: i.key, label: L(i.label), group: i.group })))
     const allMeasItems = MEAS_COLS.map(c => ({ key: c.key, label: L(c.label) }))
-    const verdicts = evaluateAll(fd, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, 4, 2)
+    const verdicts = evaluateAll(fd, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, insp.lot_size, 4, 2)
+    // v101: counts come from the SHARED computeOutcomes so the PDF, the in-app
+    // Summary and the emailed interactive report can never disagree. This file
+    // used to carry a third copy of the maths, which (a) used ONLY the 100%
+    // results once 100% started — discarding the base and additional samples —
+    // and (b) never listed a failing ADDITIONAL piece.
+    const outcomeByKey = new Map<string, OutcomeRow>(
+      computeOutcomes(fd, (k: string) => k, {
+        appSample: insp.app_sample, funSample: insp.fun_sample, lotSize: insp.lot_size,
+      }).map((o: OutcomeRow) => [o.key, o] as [string, OutcomeRow]),
+    )
 
     const verdictByKey = new Map(verdicts.map(v => [v.key, v]))
 
@@ -163,12 +174,8 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
       if (n > 0) return `#${n}`
       return '—'
     }
-    const pieceList = (pieces: number[]) => pieces.length ? pieces.map(pieceShort).join(', ') : '—'
-    const resultFor = (itemKey: string, pieceNo: number, tab: 'form' | 'measure') =>
-      tab === 'measure' ? fd.meas_results?.[`${itemKey}:${pieceNo}`] : fd.results?.[`${itemKey}:${pieceNo}`]
-    const extraFor = (itemKey: string, tab: 'form' | 'measure') =>
-      tab === 'measure' ? (fd.meas_extra_results?.[itemKey] || []) : (fd.extra_results?.[itemKey] || [])
-    const hundred = fd.hundred_pct || {}
+    // (pieceList / resultFor / extraFor / hundred were the local outcome maths —
+    // removed in v101; the counts now come from the shared computeOutcomes above.)
 
     const statusText = (status?: string) => {
       if (status === 'full_inspection') return lang === 'en' ? '100% Inspection Required / Completed' : '需/已全检'
@@ -184,34 +191,17 @@ export async function openInspectionReport(inspectionId: string, lang: Lang = 'e
 
     const outcomeRows = allOutcomeItems.map(item => {
       const verdict = verdictByKey.get(item.key)
-      const hMap = hundred[item.key] || {}
-      const hEntries = Object.entries(hMap).filter(([, r]) => r === 'P' || r === 'F')
-
-      let checked = 0
-      let pass = 0
-      let fail = 0
-      let failingPieces: number[] = []
-
-      // If 100% inspection has started for this parameter, use the 100% results.
-      if (hEntries.length) {
-        checked = hEntries.length
-        pass = hEntries.filter(([, r]) => r === 'P').length
-        failingPieces = hEntries.filter(([, r]) => r === 'F').map(([pc]) => Number(pc)).sort((a, b) => a - b)
-        fail = failingPieces.length
-      } else {
-        const base = Array.from({ length: item.sample }, (_, i) => resultFor(item.key, i + 1, item.tab))
-        const extras = extraFor(item.key, item.tab).filter(r => r === 'P' || r === 'F')
-        checked = base.filter(r => r === 'P' || r === 'F' || r === 'NA').length + extras.length
-        pass = base.filter(r => r === 'P' || r === 'NA').length + extras.filter(r => r === 'P').length
-        failingPieces = base.map((r, i) => r === 'F' ? i + 1 : 0).filter(Boolean)
-        fail = failingPieces.length + extras.filter(r => r === 'F').length
-      }
+      const o = outcomeByKey.get(item.key)
+      const checked = o?.checked ?? 0
+      const pass = o?.pass ?? 0
+      const fail = o?.fail ?? 0
+      const pieces = o?.defectPieces ?? '—'
 
       const cls = verdict?.status === 'full_inspection' ? 'full' : verdict?.status === 'monitor' ? 'monitor' : verdict?.status === 'extra_needed' ? 'extra' : 'monitor'
       return `<tr><td>${esc(item.label)}</td><td>${checked}</td>
         <td style="color:var(--pass);font-weight:700">${pass}</td>
         <td style="color:var(--fail);font-weight:700">${fail}</td>
-        <td style="font-size:11px">${pieceList(failingPieces)}</td>
+        <td style="font-size:11px">${esc(pieces)}</td>
         <td><span class="tag ${cls}">${esc(statusText(verdict?.status))}</span></td></tr>`
     }).join('')
 

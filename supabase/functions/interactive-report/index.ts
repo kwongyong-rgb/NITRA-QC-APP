@@ -170,19 +170,37 @@ Deno.serve(async (req) => {
     for (const k of Object.keys(hundred)) keySet.add(k)
 
     const rank = (o: string) => (o === '100% Inspection' ? 0 : o.startsWith('Additional') ? 1 : 2)
+    // v101 — LOT-CAPPED sampling, and ADDITIONAL-sample pieces counted.
+    // Must stay in lockstep with src/lib/outcome.ts (the in-app Summary and the
+    // PDF both use that shared function); if these two drift, the emailed report
+    // contradicts the app — exactly the class of bug fixed back in v79.
+    const lotSize = Number(insp.lot_size) || 0
+    const capSample = (n: number) => (lotSize > 0 ? Math.max(0, Math.min(n, lotSize)) : n)
+    const appBase = capSample(Number(insp.app_sample) || 0)
+    const funBase = capSample(Number(insp.fun_sample) || 0)
+
     const liveFails = new Set<string>()
     const outcomes = [...keySet].map((key) => {
       const bV = scanBase(baseV, key), bT = scanBase(baseT, key)
       const baseFails = [...bV.fails, ...bT.fails]
-      const ex = scanArr(extraV[key] || extraT[key])
+      // Which stream is this parameter on? Decides its base sample size (and so the
+      // real lot piece numbers of its extras) and its standard extra count.
+      const isVisual = !!extraV[key] || bV.checked > 0
+      const exArr = extraV[key] || extraT[key]
+      const ex = scanArr(exArr)
+      const exBase = isVisual ? appBase : funBase
       // Mirror the rule engine: base sample is the gate. 0 base fails = clean
       // (extras AND any old 100% data are ignored). 100% only when the base has
       // >=2 fails, or exactly 1 base fail plus a failed extra-sample piece.
       const triggers100 = baseFails.length >= 2 || (baseFails.length >= 1 && ex.failIdx.length >= 1)
-      // Per piece: 100% fills pieces in first (only if triggered), then the base
-      // verdict OVERRIDES — base is the first authority and is never overturned.
+      // Lowest authority first: 100% fills in (only if triggered), then the
+      // ADDITIONAL sample at its REAL lot piece numbers (extra #1 = piece
+      // exBase+1), then the BASE sample overrides — base is never overturned.
+      // Extras used to be skipped entirely here, so a Fail found during additional
+      // inspection never reached the count.
       const mergedV: Record<number, string> = {}
       if (triggers100) { for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v } }
+      ;(exArr || []).forEach((v: string, i: number) => { if (v === 'P' || v === 'F') mergedV[exBase + i + 1] = v })
       for (const [k, v] of Object.entries(baseV)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
       for (const [k, v] of Object.entries(baseT)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
       const failPieces = Object.entries(mergedV).filter(([, v]) => v === 'F').map(([pc]) => Number(pc)).sort((a, b) => a - b)
@@ -190,10 +208,15 @@ Deno.serve(async (req) => {
       const fail = failPieces.length
       const dedup = failPieces.map((n) => `#${n}`)
       for (const pc of failPieces) liveFails.add(`${key}:${pc}`)
+      // Extras required here, lot-capped: 0 means the base already covered the
+      // whole lot, so additional inspection is complete by definition.
+      const extrasReq = lotSize > 0
+        ? Math.max(0, Math.min(isVisual ? 4 : 2, lotSize - exBase))
+        : (isVisual ? 4 : 2)
       let outcome: string
       if (baseFails.length === 0) outcome = 'Pass'
       else if (triggers100) outcome = '100% Inspection'
-      else if (ex.checked > 0) outcome = 'Additional Inspection — Pass'
+      else if (ex.checked >= extrasReq) outcome = 'Additional Inspection — Pass'
       else outcome = 'Additional Inspection Required'
       return {
         parameter: labelOf(key),

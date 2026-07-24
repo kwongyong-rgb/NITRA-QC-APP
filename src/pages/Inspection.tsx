@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, isBlack, type Sku } from '../lib/standard'
-import { evaluateAll, emptyFormData, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
+import { evaluateAll, emptyFormData, effectiveSample, extraPieceNo, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb, MediaCapture } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
@@ -197,7 +197,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [customDisps, setCustomDisps] = useState<CustomDisp[]>([])
   const [dispSaveChecked, setDispSaveChecked] = useState(false)
   const [restore, setRestore] = useState<{ data: { form_data?: unknown; summary?: unknown; pallet_data?: unknown }; savedAt: string; diff: string[] } | null>(null)
-  const extrasRequiredFor = (tab: 'form' | 'measure') => tab === 'measure' ? 2 : 4
+  // Lot-capped sample sizes (v101). The stored app_sample/fun_sample come from the
+  // sampling table and can exceed a small lot (a lot of 5 would ask for 8) — and
+  // extras must be capped by whatever is left after the base. Everything on this
+  // screen uses these, never the raw stored values.
+  const appBase = effectiveSample(insp?.app_sample ?? 0, insp?.lot_size ?? 0)
+  const funBase = effectiveSample(insp?.fun_sample ?? 0, insp?.lot_size ?? 0)
 
   const load = useCallback(async () => {
     const draft = await getLocalDraft('inspection', id!)
@@ -694,7 +699,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     } else {
       fd.na_overrides![itemKey] = true
       // Apply NA to all pieces for this item
-      const n = isMeas ? insp.fun_sample : insp.app_sample
+      const n = isMeas ? funBase : appBase
       for (let p = 1; p <= n; p++) {
         const rkey = `${itemKey}:${p}`
         const old = isMeas ? fd.meas_results?.[rkey] : fd.results[rkey]
@@ -732,15 +737,15 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (!insp) return null
     if (tab === 'form') {
       const done = formKeys.filter(k => formAnswered(k, piece)).length
-      const piecesDone = Array.from({ length: insp.app_sample }, (_, i) => i + 1)
+      const piecesDone = Array.from({ length: appBase }, (_, i) => i + 1)
         .filter(pc => formKeys.every(k => formAnswered(k, pc))).length
-      return { done, total: formKeys.length, piecesDone, pieces: insp.app_sample }
+      return { done, total: formKeys.length, piecesDone, pieces: appBase }
     }
     if (tab === 'measure') {
       const done = measKeys.filter(k => measAnswered(k, piece)).length
-      const piecesDone = Array.from({ length: insp.fun_sample }, (_, i) => i + 1)
+      const piecesDone = Array.from({ length: funBase }, (_, i) => i + 1)
         .filter(pc => measKeys.every(k => measAnswered(k, pc))).length
-      return { done, total: measKeys.length, piecesDone, pieces: insp.fun_sample }
+      return { done, total: measKeys.length, piecesDone, pieces: funBase }
     }
     return null
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -750,12 +755,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (tab === 'form') {
       const k = formKeys.find(key => !formAnswered(key, piece))
       if (k) { document.getElementById(`row-form-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return }
-      const nextPc = Array.from({ length: insp.app_sample }, (_, i) => i + 1).find(pc => pc !== piece && !formKeys.every(key => formAnswered(key, pc)))
+      const nextPc = Array.from({ length: appBase }, (_, i) => i + 1).find(pc => pc !== piece && !formKeys.every(key => formAnswered(key, pc)))
       if (nextPc) { setPiece(nextPc); window.scrollTo({ top: 0, behavior: 'smooth' }) }
     } else if (tab === 'measure') {
       const k = measKeys.find(key => !measAnswered(key, piece))
       if (k) { document.getElementById(`row-meas-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return }
-      const nextPc = Array.from({ length: insp.fun_sample }, (_, i) => i + 1).find(pc => pc !== piece && !measKeys.every(key => measAnswered(key, pc)))
+      const nextPc = Array.from({ length: funBase }, (_, i) => i + 1).find(pc => pc !== piece && !measKeys.every(key => measAnswered(key, pc)))
       if (nextPc) { setPiece(nextPc); window.scrollTo({ top: 0, behavior: 'smooth' }) }
     }
   }
@@ -765,15 +770,15 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const stepState = (k: typeof TABS[number]): StepState => {
     if (!insp) return 'empty'
     if (k === 'form') {
-      const total = insp.app_sample * formKeys.length
+      const total = appBase * formKeys.length
       let done = 0
-      for (let pc = 1; pc <= insp.app_sample; pc++) done += formKeys.filter(key => formAnswered(key, pc)).length
+      for (let pc = 1; pc <= appBase; pc++) done += formKeys.filter(key => formAnswered(key, pc)).length
       return done === 0 ? 'empty' : done >= total ? 'done' : 'partial'
     }
     if (k === 'measure') {
-      const total = insp.fun_sample * measKeys.length
+      const total = funBase * measKeys.length
       let done = 0
-      for (let pc = 1; pc <= insp.fun_sample; pc++) done += measKeys.filter(key => measAnswered(key, pc)).length
+      for (let pc = 1; pc <= funBase; pc++) done += measKeys.filter(key => measAnswered(key, pc)).length
       return done === 0 ? 'empty' : done >= total ? 'done' : 'partial'
     }
     if (k === 'photos') return photos.length > 0 ? 'done' : 'empty'
@@ -872,7 +877,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
       const sec = SECTIONS.find(s => s.key===sectionKey); if (!sec) return
       for (const item of sec.items) {
         if (naOverrides[item.key] || autoNaItems.has(item.key)) continue
-        const n = insp.app_sample
+        const n = appBase
         if (piece > n) continue
         const rkey = `${item.key}:${piece}`
         prevMap[rkey] = fd.results[rkey]
@@ -897,14 +902,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
     for (const sl of PHOTO_SLOTS) m[sl.key] = bi(sl.label)
     return (k: string) => m[k] || k.replace(/_/g,' ')
   }, [bi])
-  const outcomeRows = useMemo(() => computeOutcomes(insp?.form_data, labelOf), [insp, labelOf])
+  const outcomeRows = useMemo(() => computeOutcomes(insp?.form_data, labelOf, {
+    appSample: insp?.app_sample ?? 0, funSample: insp?.fun_sample ?? 0, lotSize: insp?.lot_size ?? 0,
+  }), [insp, labelOf])
   const failedParamStr = useMemo(() => {
     const f = outcomeRows.filter(r => r.fail > 0).map(r => r.parameter)
     return f.length ? f.join(', ') : 'the affected parameter(s)'
   }, [outcomeRows])
   const verdicts = useMemo(() => {
     if (!insp) return []
-    return evaluateAll(insp.form_data, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, 4, 2)
+    return evaluateAll(insp.form_data, allFormItems, allMeasItems, insp.app_sample, insp.fun_sample, insp.lot_size, 4, 2)
   }, [insp, allFormItems, allMeasItems])
 
   const addExtra = async (verdict: ItemVerdict, result: 'P'|'F') => {
@@ -1026,9 +1033,24 @@ export default function Inspection({ profile }: { profile: Profile }) {
       }
     }
     scan(insp?.form_data?.results); scan(insp?.form_data?.meas_results)
+    // v101 — carry the ADDITIONAL sample into the 100% check too. Extras are
+    // sequential pieces after the base sample (extra #1 = piece appBase+1), so they
+    // land on their real lot piece number, show as already-inspected/locked, and
+    // count toward checked/fails. Before this they were invisible to the 100% page:
+    // a Fail found during additional inspection vanished from the count.
+    const scanExtras = (map: Record<string, PFNA[]> | undefined, base: number) => {
+      for (const [key, arr] of Object.entries(map || {})) {
+        ;(arr || []).forEach((v, i) => {
+          if (v !== 'P' && v !== 'F') return
+          ;(out[key] ||= {})[String(extraPieceNo(base, i))] = v
+        })
+      }
+    }
+    scanExtras(insp?.form_data?.extra_results, appBase)
+    scanExtras(insp?.form_data?.meas_extra_results, funBase)
     return out
   })()
-  const nPieces = insp?.app_sample ?? 0
+  const nPieces = appBase
 
   // ── Photos tab: every parameter (even empty) grouped by section header ──
   const photoSections = useMemo(() => {
@@ -1159,7 +1181,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
         <div className="row"><h2 style={{ flex:1 }}>{insp.part_no} <span className={`pill ${insp.status}`}>{insp.status}</span></h2></div>
         <p className="muted">{sku.model} · {sku.size} · PCD {sku.pcd} · ET {sku.offset_txt} · CB {sku.cb_mm} · {sku.finish}
           {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg.toFixed(2)} kg</>}</p>
-        <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {insp.app_sample} · Fun: {insp.fun_sample}</p>
+        <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {appBase} · Fun: {funBase}</p>
         {insp.status==='rejected' && insp.review_note && <div className="banner bad" style={{ marginTop:8 }}>↩ {insp.review_note}</div>}
         {submitMsg && <div className="banner ok" style={{ marginTop:8 }}>{submitMsg}</div>}
         {insp.amended_at && (
@@ -1281,7 +1303,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
             ))}
           </div>
           {SECTIONS.map(sec => {
-            const visibleItems = sec.items.filter(() => piece <= insp.app_sample)
+            const visibleItems = sec.items.filter(() => piece <= appBase)
             if (visibleItems.length===0) return null
             return (
               <div className="card" key={sec.key}>
@@ -1326,12 +1348,12 @@ export default function Inspection({ profile }: { profile: Profile }) {
         <>
           <div className="row" style={{ marginBottom:12, flexWrap:'wrap' }}>
             <span style={{ fontWeight:700, fontSize:15 }}>{t('piece')}:</span>
-            {Array.from({ length:insp.fun_sample }, (_,i) => i+1).map(n => (
+            {Array.from({ length:funBase }, (_,i) => i+1).map(n => (
               <button key={n} className="btn ghost" style={{ minHeight:44, minWidth:44, padding:'8px 12px', ...(piece===n?{ background:'var(--navy)', color:'#fff', borderColor:'var(--navy)' }:{}) }} onClick={() => setPiece(n)}>{n}</button>
             ))}
           </div>
-          {piece>insp.fun_sample
-            ? <div className="banner warn">{t('funSample')}: {insp.fun_sample}</div>
+          {piece>funBase
+            ? <div className="banner warn">{t('funSample')}: {funBase}</div>
             : MEAS_SECTIONS.map(msec => (
               <div className="card" key={msec.key}>
                 <div className="row" style={{ marginBottom:8, alignItems:'flex-start' }}>
@@ -1643,7 +1665,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
       {/* ── MODALS ── */}
       {modal?.type==='fail' && <DefectModal inspectionId={insp.id} itemKey={modal.itemKey} itemLabel={modal.itemLabel} pieceNo={modal.pieceNo} tab={modal.tab} onDone={() => { setModal(null); afterPhotoChange() }} onClose={() => { setModal(null); afterPhotoChange() }} />}
       {modal?.type==='pass' && <PassPhotoModal inspectionId={insp.id} itemKey={modal.itemKey} itemLabel={modal.itemLabel} pieceNo={modal.pieceNo} tab={modal.tab} onDone={() => { setModal(null); afterPhotoChange() }} onClose={() => setModal(null)} />}
-      {modal?.type==='extra' && <ExtraPieceScreen inspectionId={insp.id} itemKey={modal.verdict.key} itemLabel={modal.verdict.label} result={modal.result} existingExtras={modal.verdict.extraResults} extrasRequired={extrasRequiredFor(modal.verdict.tab)} onSave={r => addExtra(modal.verdict, r)} onUndo={() => undoExtra(modal.verdict)} onClose={() => setModal(null)} />}
+      {modal?.type==='extra' && <ExtraPieceScreen inspectionId={insp.id} itemKey={modal.verdict.key} itemLabel={modal.verdict.label} result={modal.result} existingExtras={modal.verdict.extraResults} extrasRequired={modal.verdict.extrasRequired} baseSample={modal.verdict.baseSample} onSave={r => addExtra(modal.verdict, r)} onUndo={() => undoExtra(modal.verdict)} onClose={() => setModal(null)} />}
       {modal?.type==='preview' && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
           {modal.mediaType==='video'
@@ -1663,7 +1685,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
         </div>
       )}
       {modal?.type==='reassign' && (
-        <ReassignModal photo={modal.photo} allItems={allItemsForReassign} maxPiece={Math.max(insp.app_sample, insp.fun_sample)}
+        <ReassignModal photo={modal.photo} allItems={allItemsForReassign} maxPiece={Math.max(insp.lot_size || 0, appBase, funBase)}
           onDone={() => { setModal(null); recordAmend('Re-assigned a photo'); afterPhotoChange() }} onClose={() => setModal(null)} />
       )}
       {modal?.type==='copy' && (

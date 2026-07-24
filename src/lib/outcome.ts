@@ -20,13 +20,43 @@ type AnyFd = {
   hundred_pct?: Record<string, Record<string, string>>
 } | null | undefined
 
-export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string): OutcomeRow[] {
+export interface SampleInfo {
+  appSample: number
+  funSample: number
+  lotSize: number
+  visualExtras?: number      // standard extras for a visual param (default 4)
+  technicalExtras?: number   // standard extras for a technical param (default 2)
+}
+
+export function computeOutcomes(
+  fdInput: unknown,
+  labelOf: (k: string) => string,
+  sample?: SampleInfo,
+): OutcomeRow[] {
   const fd = (fdInput || {}) as AnyFd
   const baseV = fd?.results || {}
   const baseT = fd?.meas_results || {}
   const extraV = fd?.extra_results || {}
   const extraT = fd?.meas_extra_results || {}
   const hundred = fd?.hundred_pct || {}
+
+  // Lot-capped base sample sizes. Extras are the pieces immediately after the base
+  // sample (extra #1 = piece baseSample+1), which is how they get real identities
+  // and can be counted here at all. Without sample info we fall back to deriving
+  // the base from the highest base piece number actually recorded.
+  const cap = (n: number) => (sample && sample.lotSize > 0 ? Math.max(0, Math.min(n, sample.lotSize)) : n)
+  const appBase = sample ? cap(sample.appSample) : 0
+  const funBase = sample ? cap(sample.funSample) : 0
+  const stdVis = sample?.visualExtras ?? 4
+  const stdTech = sample?.technicalExtras ?? 2
+  const highestBasePiece = (map: Record<string, string>, key: string) => {
+    let hi = 0
+    for (const k of Object.keys(map)) {
+      const [kk, pc] = k.split(':')
+      if (kk === key) hi = Math.max(hi, Number(pc) || 0)
+    }
+    return hi
+  }
 
   const scanBase = (map: Record<string, string>, key: string) => {
     let checked = 0; const fails: number[] = []
@@ -53,25 +83,40 @@ export function computeOutcomes(fdInput: unknown, labelOf: (k: string) => string
   return [...keySet].map((key) => {
     const bV = scanBase(baseV, key), bT = scanBase(baseT, key)
     const baseFails = [...bV.fails, ...bT.fails]
-    const ex = scanArr(extraV[key] || extraT[key])
+    // Which stream is this parameter on? That decides its base sample size (and
+    // therefore the real piece numbers of its extras) and its standard extra count.
+    const isVisual = !!extraV[key] || bV.checked > 0
+    const exArr = extraV[key] || extraT[key]
+    const ex = scanArr(exArr)
+    const declaredBase = isVisual ? appBase : funBase
+    const exBase = declaredBase || highestBasePiece(isVisual ? baseV : baseT, key)
     // Mirror the rule engine: base sample is the gate. 0 base fails = clean
     // (extras AND any old 100% data are ignored). 100% only when the base has
     // >=2 fails, or exactly 1 base fail plus a failed extra-sample piece.
     const triggers100 = baseFails.length >= 2 || (baseFails.length >= 1 && ex.failIdx.length >= 1)
-    // Per piece: 100% fills pieces in first (only if triggered), then the base
-    // verdict OVERRIDES — base is the first authority and is never overturned.
+    // Per piece, lowest authority first: 100% fills in (only if triggered), then
+    // the ADDITIONAL sample, then the BASE sample overrides — base is the first
+    // authority and is never overturned. Extras are merged at their REAL lot piece
+    // numbers (extra #1 = piece exBase+1); previously they were skipped entirely,
+    // which is why a failed extra never reached the fail count or the 100% page.
     const mergedV: Record<number, string> = {}
     if (triggers100) { for (const [pc, v] of Object.entries(hundred[key] || {})) { if (v === 'P' || v === 'F') mergedV[Number(pc)] = v } }
+    ;(exArr || []).forEach((v, i) => { if (v === 'P' || v === 'F') mergedV[exBase + i + 1] = v })
     for (const [k, v] of Object.entries(baseV)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
     for (const [k, v] of Object.entries(baseT)) { if (k.split(':')[0] === key && (v === 'P' || v === 'F')) mergedV[Number(k.split(':')[1])] = v }
     const failPieces = Object.entries(mergedV).filter(([, v]) => v === 'F').map(([pc]) => Number(pc)).sort((a, b) => a - b)
     const checked = Object.keys(mergedV).length
     const fail = failPieces.length
     const dedup = failPieces.map((n) => `#${n}`)
+    // Extras required here, lot-capped: 0 means the base already covered the whole
+    // lot, so "additional inspection" is complete by definition — never leave such
+    // a parameter reading "Additional Inspection Required" forever.
+    const lot = sample?.lotSize ?? 0
+    const extrasReq = lot > 0 ? Math.max(0, Math.min(isVisual ? stdVis : stdTech, lot - exBase)) : (isVisual ? stdVis : stdTech)
     let outcome: string
     if (baseFails.length === 0) outcome = 'Pass'
     else if (triggers100) outcome = '100% Inspection'
-    else if (ex.checked > 0) outcome = 'Additional Inspection — Pass'
+    else if (ex.checked >= extrasReq) outcome = 'Additional Inspection — Pass'
     else outcome = 'Additional Inspection Required'
     return { key, parameter: labelOf(key), checked, pass: checked - fail, fail, defectPieces: dedup.length ? dedup.join(', ') : '—', outcome }
   }).filter((o) => o.checked > 0)

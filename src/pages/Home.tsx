@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
-import { useOnline } from '../lib/connectivity'
+import { useOnline, isOffline } from '../lib/connectivity'
 import { cacheGetWithMeta, cacheSet, poListKey, type CachedPoGroup } from '../lib/refCache'
 import { getPendingForUser } from '../lib/offlineSync'
 
@@ -58,6 +58,10 @@ export default function Home({ profile }: { profile: Profile }) {
   const load = useCallback(async () => {
     const key = poListKey(profile.id)
     try {
+      // Known-offline: don't attempt the reads — offline they HANG until the
+      // network times out instead of failing fast, which is why the PO list was
+      // slow to appear. Jump straight to the cache fallback below (v101).
+      if (isOffline()) throw new Error('offline')
       const [i, c, p] = await Promise.all([
         supabase.from('inspections').select('id,po_no,updated_at').order('updated_at', { ascending: false }).limit(500),
         supabase.from('container_loadings').select('id,po_no,updated_at').order('updated_at', { ascending: false }).limit(500),

@@ -45,6 +45,9 @@ export default function PoInfo({ po, profile, refreshKey }: { po: string; profil
     setErr('')
     const key = poInfoKey(profile.id, po)
     try {
+      // Known-offline: skip the doomed reads (they hang on a network timeout) and
+      // go straight to the cache fallback below (v101).
+      if (isOffline()) throw new Error('offline')
       // PO master row — create lazily if missing (covers POs typed before Phase 1).
       // v87: never lazily create while offline. Offline the read below returns
       // nothing because there's no network, NOT because the PO is missing — so

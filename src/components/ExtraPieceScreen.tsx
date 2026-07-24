@@ -13,15 +13,19 @@ interface Props {
   onUndo: () => void
   onClose: () => void
   extrasRequired: number
+  baseSample: number      // extras are the pieces after this (extra #1 = baseSample+1)
 }
 
 export default function ExtraPieceScreen({
   inspectionId, itemKey, itemLabel, result,
-  existingExtras, onSave, onUndo, onClose, extrasRequired
+  existingExtras, onSave, onUndo, onClose, extrasRequired, baseSample
 }: Props) {
   const { bi: _bi } = useI18n(); void _bi
   const [photoModal, setPhotoModal] = useState(false)
   const done = existingExtras.filter(r => r === 'P' || r === 'F').length
+  // The REAL lot piece number of the extra being recorded — extras are sequential
+  // after the base sample, so with a base of 8 this is piece 9, then 10…
+  const lotPieceNo = baseSample + done + 1
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -34,7 +38,7 @@ export default function ExtraPieceScreen({
         {/* Item info */}
         <div className="card" style={{ background: result === 'F' ? 'var(--fail-bg)' : 'var(--pass-bg)', marginBottom: 14, padding: 10 }}>
           <div><b>Item / 检验项目:</b> {itemLabel}</div>
-          <div><b>Extra piece {done + 1} of {extrasRequired}</b></div>
+          <div><b>Additional piece {done + 1} of {extrasRequired}</b> — lot piece #{lotPieceNo}</div>
         </div>
 
         {/* Previous extras dots */}

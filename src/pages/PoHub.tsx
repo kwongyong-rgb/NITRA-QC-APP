@@ -9,7 +9,7 @@ import AttachInspectionModal from '../components/AttachInspectionModal'
 import { linkedInspectionIds, deletePoLinksAndOrphans } from '../lib/inspectionPos'
 import PoStatusStrip from '../components/PoStatusStrip'
 import CustomerAccessCard from '../components/CustomerAccessCard'
-import { useOnline } from '../lib/connectivity'
+import { useOnline, isOffline } from '../lib/connectivity'
 import { cacheGetWithMeta, cacheGet, cacheSet, poHubKey, poListKey, type CachedPoHub, type CachedPoGroup } from '../lib/refCache'
 import { getPendingForUser } from '../lib/offlineSync'
 
@@ -56,6 +56,9 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const load = useCallback(async () => {
     const key = poHubKey(profile.id, po)
     try {
+      // Known-offline: skip the doomed reads (they hang on a network timeout) and
+      // go straight to the cache fallback below (v101).
+      if (isOffline()) throw new Error('offline')
       const { ids, offPo } = await linkedInspectionIds(po)
       let inspList: Insp[] = []
       if (ids.length) {
