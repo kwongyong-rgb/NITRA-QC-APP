@@ -21,7 +21,11 @@ import { useEffect, useState } from 'react'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
 // GoTrue health endpoint — public, tiny, always present on a Supabase project.
 const PING_URL = `${SUPABASE_URL}/auth/v1/health`
-const RECHECK_MS = 30_000     // re-confirm periodically (catches silent drops)
+// v99: 10s, was 30s. iOS PWAs fire the browser online event unreliably, and SPA
+// navigation triggers no reverification at all — so after restoring wifi the pill
+// could read Offline for up to 30s, which testers (reasonably) read as broken.
+// The ping is a tiny no-cors GET; 10s is a fine trade.
+const RECHECK_MS = 10_000     // re-confirm periodically (catches silent drops)
 const PING_TIMEOUT_MS = 5_000 // a hung request counts as offline
 
 // A synchronous, conservative "are we definitely offline?" check.
@@ -79,6 +83,7 @@ export function useOnline(): boolean {
 
     window.addEventListener('offline', onOffline)
     window.addEventListener('online', onOnline)
+    window.addEventListener('focus', onOnline)      // v99: re-verify on focus too
     document.addEventListener('visibilitychange', onVisible)
 
     verify()                                      // initial confirmation
@@ -88,6 +93,7 @@ export function useOnline(): boolean {
       alive = false
       window.removeEventListener('offline', onOffline)
       window.removeEventListener('online', onOnline)
+      window.removeEventListener('focus', onOnline)
       document.removeEventListener('visibilitychange', onVisible)
       window.clearInterval(id)
     }

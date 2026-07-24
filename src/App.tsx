@@ -257,10 +257,13 @@ export default function App() {
         </nav>
       </header>
       {/* v95 TEMPORARY diagnostic — shows why offline photos aren't uploading, so a
-          stuck ⏳ counter can be diagnosed on-device. Remove once resolved. */}
-      {mediaPending.count > 0 && mediaSyncErr && (
+          stuck ⏳ counter can be diagnosed on-device. Remove once resolved.
+          v99: a DISCARD notice stays visible even after the queue empties — before
+          this, dropping an unrecoverable photo hid the red line the instant the
+          counter hit 0, so a silently discarded photo left no trace on screen. */}
+      {mediaSyncErr && (mediaPending.count > 0 || /discarded/i.test(mediaSyncErr)) && (
         <div style={{ background: '#7A1512', color: '#FDE7E6', fontSize: 12, padding: '6px 14px', wordBreak: 'break-all' }}>
-          🔧 {mediaPending.count} media waiting · last sync error: {mediaSyncErr}
+          🔧 {mediaPending.count} media waiting · last sync: {mediaSyncErr}
         </div>
       )}
       <div style={showSidebar ? { display: 'flex', alignItems: 'flex-start' } : undefined}>

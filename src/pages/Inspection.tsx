@@ -384,6 +384,23 @@ export default function Inspection({ profile }: { profile: Profile }) {
     // isPending flipping false stop this from re-entering.
   }, [online, isPending, insp, sku, profile.id, load])
 
+  // v99 — reconnect while a SERVER inspection is open with unsaved offline edits:
+  // push the on-screen state and clear the offline banner. The on-screen copy IS
+  // the latest truth here (it started from the server row and accumulated this
+  // user's edits while the page stayed open), so pushing silently is correct — the
+  // restore PROMPT exists for the other case, a fresh open finding a mismatched
+  // leftover, where the app can't know which copy the user wants.
+  useEffect(() => {
+    if (!online || !offlineNote || isPending || !insp) return
+    ;(async () => {
+      const { error } = await supabase.from('inspections')
+        .update({ form_data: insp.form_data, summary: insp.summary, pallet_data: insp.pallet_data })
+        .eq('id', insp.id)
+      if (!error) setOfflineNote(false)
+      // On error (still flaky): banner stays, next flip or edit retries.
+    })()
+  }, [online, offlineNote, isPending, insp])
+
   const applyRestore = async () => {
     if (!insp || !restore) return
     const r = restore.data

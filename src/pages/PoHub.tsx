@@ -10,7 +10,7 @@ import { linkedInspectionIds, deletePoLinksAndOrphans } from '../lib/inspectionP
 import PoStatusStrip from '../components/PoStatusStrip'
 import CustomerAccessCard from '../components/CustomerAccessCard'
 import { useOnline } from '../lib/connectivity'
-import { cacheGetWithMeta, cacheSet, poHubKey, type CachedPoHub } from '../lib/refCache'
+import { cacheGetWithMeta, cacheGet, cacheSet, poHubKey, poListKey, type CachedPoHub, type CachedPoGroup } from '../lib/refCache'
 import { getPendingForUser } from '../lib/offlineSync'
 
 type Insp = CachedPoHub['insps'][number] & { pending?: boolean }
@@ -68,6 +68,20 @@ export default function PoHub({ profile }: { profile: Profile }) {
       const contList = (c as Cont[]) || []
       // Cache the SERVER view, then display it with pending work merged in.
       void cacheSet(key, { insps: inspList, conts: contList } satisfies CachedPoHub)
+      // v99: also fold THIS PO into the user's offline PO-list cache. A PO created
+      // online after the last list-cache write (e.g. created just now from Home,
+      // which navigates straight here) was otherwise missing from the list when
+      // offline — making its inspections unreachable onsite.
+      try {
+        const listKey = poListKey(profile.id)
+        const list = (await cacheGet<CachedPoGroup[]>(listKey)) || []
+        let g = list.find(x => x.po === po)
+        if (!g) { g = { po, inspCount: 0, contCount: 0, latest: new Date().toISOString() }; list.push(g) }
+        g.inspCount = inspList.length
+        g.contCount = contList.length
+        if (inspList[0]?.updated_at && inspList[0].updated_at > g.latest) g.latest = inspList[0].updated_at
+        await cacheSet(listKey, list.sort((a, b) => b.latest.localeCompare(a.latest)))
+      } catch { /* cache fold is best-effort */ }
       setInsps(await withPending(inspList)); setConts(contList); setCachedAt(null)
       return
     } catch { /* offline / fetch failed — fall through to the cache */ }
