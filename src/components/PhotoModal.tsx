@@ -94,10 +94,16 @@ export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string,
 
   return (
     <div style={{ display: 'flex', gap: 8 }}>
+      {/* These handlers are DELIBERATELY synchronous fire-and-forget, exactly the
+          shape that shipped online uploads reliably from day one. v97 made them
+          async (await upload, then clear the input) on a timing theory that the
+          evidence disproves — online uploads always read the File AFTER the input
+          was cleared and always worked — and the async form broke ONLINE capture
+          on iOS (v98 revert). DO NOT re-introduce an await here. */}
       <input ref={photoRef} type="file" accept="image/*" capture="environment" hidden
-        onChange={async e => { const input = e.currentTarget; const f = e.target.files?.[0]; if (f) await upload(f,'photo'); input.value='' }} />
+        onChange={e => { const f = e.target.files?.[0]; if (f) upload(f,'photo'); e.currentTarget.value='' }} />
       <input ref={videoRef} type="file" accept="video/*" capture="environment" hidden
-        onChange={async e => { const input = e.currentTarget; const f = e.target.files?.[0]; if (f) await upload(f,'video'); input.value='' }} />
+        onChange={e => { const f = e.target.files?.[0]; if (f) upload(f,'video'); e.currentTarget.value='' }} />
       <button className="btn ghost" style={{ flex: 1 }} disabled={uploading} onClick={() => photoRef.current?.click()}>
         📷 {label || 'Photo'}
       </button>

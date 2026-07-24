@@ -128,8 +128,12 @@ export default function App() {
     if (!(online && profile)) return
     void (async () => {
       await syncPendingInspections(profile.id)
-      const n = await syncPendingMedia(profile.id)
-      if (n > 0) setMediaPending(await pendingMediaStats(profile.id))
+      await syncPendingMedia(profile.id)
+      // Refresh the tally UNCONDITIONALLY. The old `if (n > 0)` guard missed the
+      // discard path (dropping an unrecoverable photo clears the queue but didn't
+      // count as an upload), so the ⏳ chip could sit stale until the next poll —
+      // or indefinitely if the poll's guarded sync kept colliding with this one.
+      setMediaPending(await pendingMediaStats(profile.id))
     })()
   }, [online, profile])
 
