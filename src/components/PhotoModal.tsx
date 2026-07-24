@@ -154,15 +154,20 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
     }
     // Offline the defect row can't be written — offlineSync.rebuildDefects
     // recreates it from form_data at sync time, so losing it here is safe.
+    // Known-offline: skip these entirely rather than waiting for each one to time
+    // out. They HANG offline (they don't fail fast), which is what made the first
+    // offline photo save take about a minute.
     let defectId: string | undefined
-    try {
-      const { data: existing } = await supabase.from('defects').select('id')
-        .eq('inspection_id', inspectionId).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tab)
-        .limit(1).maybeSingle()
-      defectId = existing?.id as string | undefined
-      if (defectId) await supabase.from('defects').update(fields).eq('id', defectId)
-      else { const { data } = await supabase.from('defects').insert(fields).select('id').single(); defectId = data?.id }
-    } catch { /* offline — defect is rebuilt at sync */ }
+    if (!isOffline()) {
+      try {
+        const { data: existing } = await supabase.from('defects').select('id')
+          .eq('inspection_id', inspectionId).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tab)
+          .limit(1).maybeSingle()
+        defectId = existing?.id as string | undefined
+        if (defectId) await supabase.from('defects').update(fields).eq('id', defectId)
+        else { const { data } = await supabase.from('defects').insert(fields).select('id').single(); defectId = data?.id }
+      } catch { /* offline — defect is rebuilt at sync */ }
+    }
 
     if (mediaPath) {
       let inserted = false
@@ -253,13 +258,19 @@ export function PassPhotoModal({ inspectionId, itemKey, itemLabel, pieceNo, tab:
     if (!mediaPath) { onDone(); return }
     setSaving(true)
     let inserted = false
-    try {
-      const { error } = await supabase.from('photos').insert({
-        inspection_id: inspectionId, storage_path: mediaPath, media_type: mediaType,
-        is_pass_photo: true, item_key: itemKey, piece_no: pieceNo, comment,
-      })
-      inserted = !error
-    } catch { /* offline — falls through to the queue below */ }
+    // Known-offline: skip the doomed insert. Offline it doesn't fail fast — it
+    // HANGS until the network times out (up to ~a minute for the first one, then
+    // quicker once iOS marks the host unreachable), which is why the first offline
+    // photo took forever to save. Same guard MediaCapture already uses.
+    if (!isOffline()) {
+      try {
+        const { error } = await supabase.from('photos').insert({
+          inspection_id: inspectionId, storage_path: mediaPath, media_type: mediaType,
+          is_pass_photo: true, item_key: itemKey, piece_no: pieceNo, comment,
+        })
+        inserted = !error
+      } catch { /* offline — falls through to the queue below */ }
+    }
     if (!inserted) {
       const ok = await queuePhotoRow({
         inspection_id: inspectionId, container_loading_id: null,

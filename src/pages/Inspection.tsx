@@ -17,7 +17,7 @@ import { saveLocalDraft, getLocalDraft, clearLocalDraft } from '../lib/localDraf
 import { cacheGet, cacheSet, inspFullKey, cachePoHubInsp } from '../lib/refCache'
 import { getPendingInspection, updatePendingInspection, syncOnePending, setOpenInspection } from '../lib/offlineSync'
 import { getPendingPhotosFor, mediaUrlFor, revokeMediaUrl, savePendingPhotoRow, currentUserId, syncPendingMedia, deleteQueuedPhoto } from '../lib/offlineMedia'
-import { useOnline } from '../lib/connectivity'
+import { useOnline, isOffline } from '../lib/connectivity'
 import SharedPosCard from '../components/SharedPosCard'
 
 // A save/load failure caused by being offline (vs a real server error). We treat
@@ -201,7 +201,21 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   const load = useCallback(async () => {
     const draft = await getLocalDraft('inspection', id!)
-    const { data: i, error: ie } = await supabase.from('inspections').select('*').eq('id', id).single()
+    // Known-offline: don't even attempt the server read. It HANGS until the network
+    // times out (~a minute on the first call) before failing, and load() runs after
+    // EVERY action — marking a result, saving a photo — so offline the whole screen
+    // felt frozen. We already know the answer; go straight to the offline paths
+    // below (pending store → cached copy), which is exactly where the timeout was
+    // landing us anyway, just a minute later.
+    let i: Insp | null = null
+    let ie: { message?: string } | null      // assigned in both branches below
+    if (isOffline()) {
+      ie = { message: 'offline' }          // isNetworkErr() reads navigator.onLine, so this classifies correctly
+    } else {
+      const res = await supabase.from('inspections').select('*').eq('id', id).single()
+      i = res.data as Insp | null
+      ie = res.error
+    }
     let row: Insp
     let pending = false
     let offlineCached = false          // restoring a SERVER inspection from cache, offline
@@ -251,8 +265,15 @@ export default function Inspection({ profile }: { profile: Profile }) {
       summary: row.summary || {},
     }
     setInsp(fi)
-    // SKU: live first, then the offline reference cache.
-    const { data: s, error: se } = await supabase.from('skus').select('*').eq('part_no', row.part_no).single()
+    // SKU: live first, then the offline reference cache. Offline, skip straight to
+    // the cache — the SKU master is warmed by warmRefCache, so the live read adds
+    // only another network timeout.
+    let s: unknown = null
+    let se: { message?: string } | null      // assigned in both branches below
+    if (!isOffline()) {
+      const res = await supabase.from('skus').select('*').eq('part_no', row.part_no).single()
+      s = res.data; se = res.error
+    } else se = { message: 'offline' }
     let skuRow: Sku | null = (s && !se) ? (s as Sku) : null
     if (!skuRow) {
       const cached = await cacheGet<Sku[]>('skus')
@@ -384,22 +405,36 @@ export default function Inspection({ profile }: { profile: Profile }) {
     // isPending flipping false stop this from re-entering.
   }, [online, isPending, insp, sku, profile.id, load])
 
-  // v99 — reconnect while a SERVER inspection is open with unsaved offline edits:
-  // push the on-screen state and clear the offline banner. The on-screen copy IS
-  // the latest truth here (it started from the server row and accumulated this
-  // user's edits while the page stayed open), so pushing silently is correct — the
-  // restore PROMPT exists for the other case, a fresh open finding a mismatched
-  // leftover, where the app can't know which copy the user wants.
+  // v99/v101 — connectivity just RETURNED while this inspection is open.
+  //
+  // Two things must happen, in this order:
+  //  1. Push anything edited while offline. The on-screen copy IS the newest truth
+  //     here (it started from the server row and accumulated only this user's
+  //     edits while the page stayed open), so pushing silently is correct — the
+  //     restore PROMPT exists for the other case, a fresh open finding a
+  //     mismatched leftover, where the app can't know which copy the user wants.
+  //  2. RE-LOAD from the server. This is the fix for "all my photos disappeared":
+  //     the offline path deliberately does setServerPhotos([]) (server images need
+  //     the network to display), and load()'s deps don't include `online`, so that
+  //     blank Photos tab persisted until the user navigated away and back. The
+  //     photos were never lost — confirmed against the DB — just not re-fetched.
+  const prevOnlineRef = useRef(online)
   useEffect(() => {
-    if (!online || !offlineNote || isPending || !insp) return
+    const was = prevOnlineRef.current
+    prevOnlineRef.current = online
+    if (was || !online) return          // only act on the false → true transition
+    if (isPending || !insp) return      // pending inspections sync via their own effect
     ;(async () => {
-      const { error } = await supabase.from('inspections')
-        .update({ form_data: insp.form_data, summary: insp.summary, pallet_data: insp.pallet_data })
-        .eq('id', insp.id)
-      if (!error) setOfflineNote(false)
-      // On error (still flaky): banner stays, next flip or edit retries.
+      if (offlineNote) {
+        const { error } = await supabase.from('inspections')
+          .update({ form_data: insp.form_data, summary: insp.summary, pallet_data: insp.pallet_data })
+          .eq('id', insp.id)
+        if (error) return               // still flaky — retry on the next flip/edit
+        setOfflineNote(false)
+      }
+      await load()                      // repopulate server photos + defects
     })()
-  }, [online, offlineNote, isPending, insp])
+  }, [online, offlineNote, isPending, insp, load])
 
   const applyRestore = async () => {
     if (!insp || !restore) return
@@ -606,6 +641,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
     // this write. Skipping the (doomed) server update here avoids a 0-row update
     // racing the reconnect sync. Once synced, isPending clears and saves resume.
     if (isPending) return
+    // Known-offline: skip the doomed update. It HANGS until the network times out
+    // instead of failing fast, so every offline tap felt frozen. The edit is
+    // already in state + localDraft, and the reconnect effect pushes it.
+    if (isOffline()) { setOfflineNote(true); return }
     const { error } = await supabase.from('inspections').update({ form_data: fd, updated_at: new Date().toISOString() }).eq('id', insp.id)
     if (error) {
       // Offline: keep the optimistic edit (already in state + the local draft) and
@@ -618,6 +657,10 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   const ensureDefect = async (itemKey: string, itemLabel: string, pieceNo: number, tabName: string) => {
     if (!insp) return
+    // Known-offline: skip. These HANG until the network times out rather than
+    // failing fast, which made every offline Fail tap feel frozen. The defect row
+    // is rebuilt from form_data at sync (offlineSync.rebuildDefects).
+    if (isOffline()) return
     const { data } = await supabase.from('defects').select('id')
       .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo).eq('tab', tabName)
       .limit(1).maybeSingle()
@@ -629,6 +672,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
   const removeDefect = async (itemKey: string, pieceNo: number, tabName: string) => {
     if (!insp) return
+    // Known-offline: skip (see ensureDefect). form_data is the source of truth and
+    // the defect rows are reconciled at sync.
+    if (isOffline()) return
     // Detach photos from the defect FIRST so the defect's cascade-delete can't remove
     // them; they survive and become pass photos (never deleted on a Fail→Pass change).
     const { error: pErr } = await supabase.from('photos').update({ defect_id: null, is_pass_photo: true })
@@ -756,7 +802,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (val==='F' && old!=='F') await ensureDefect(itemKey, itemLabel, pieceNo, tabName)
     if (old==='F' && val!=='F') await removeDefect(itemKey, pieceNo, tabName)
     // Keep any photos for this piece in sync with the new verdict (never delete them)
-    if (val==='P' || val==='F') {
+    if ((val==='P' || val==='F') && !isOffline()) {
       const { error: pErr } = await supabase.from('photos').update({ is_pass_photo: val==='P' })
         .eq('inspection_id', insp.id).eq('item_key', itemKey).eq('piece_no', pieceNo)
       if (pErr) console.error('photo sync failed', pErr)
