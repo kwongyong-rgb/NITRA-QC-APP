@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { SECTIONS, MEAS_SECTIONS, MEAS_COLS, PHOTO_SLOTS, PALLET_ITEMS, isGlossBlack, isBlack, type Sku } from '../lib/standard'
-import { evaluateAll, emptyFormData, effectiveSample, extraPieceNo, type FormData, type PFNA, type ItemVerdict } from '../lib/rules'
+import { evaluateAll, emptyFormData, effectiveSample, extraPieceNo, sampleSizes, type FormData, type PFNA, type ItemVerdict, type SamplingSettings } from '../lib/rules'
 import { computeOutcomes, summaryItems, outcomeColor } from '../lib/outcome'
 import { DefectModal, PassPhotoModal, ReassignModal, CopyModal, MediaThumb, MediaCapture } from '../components/PhotoModal'
 import ExtraPieceScreen from '../components/ExtraPieceScreen'
@@ -197,6 +197,9 @@ export default function Inspection({ profile }: { profile: Profile }) {
   const [customDisps, setCustomDisps] = useState<CustomDisp[]>([])
   const [dispSaveChecked, setDispSaveChecked] = useState(false)
   const [restore, setRestore] = useState<{ data: { form_data?: unknown; summary?: unknown; pallet_data?: unknown }; savedAt: string; diff: string[] } | null>(null)
+  const [sampling, setSampling] = useState<SamplingSettings | null>(null)   // for recomputing samples on a lot-size edit
+  const [editLot, setEditLot] = useState<string | null>(null)               // lot-size edit modal (the string being typed)
+  const [lotBusy, setLotBusy] = useState(false)
   // Lot-capped sample sizes (v101). The stored app_sample/fun_sample come from the
   // sampling table and can exceed a small lot (a lot of 5 would ask for 8) — and
   // extras must be capped by whatever is left after the base. Everything on this
@@ -458,6 +461,16 @@ export default function Inspection({ profile }: { profile: Profile }) {
   }
   const discardRestore = async () => { if (insp) await clearLocalDraft('inspection', insp.id); setRestore(null) }
 
+  // Sampling settings — used to recompute app/fun sample sizes when the lot size
+  // is edited. Cache-first so it's available offline too (warmed by warmRefCache).
+  useEffect(() => {
+    supabase.from('settings').select('value').eq('key', 'sampling').single()
+      .then(({ data, error }) => {
+        if (data && !error) setSampling(data.value as SamplingSettings)
+        else cacheGet<SamplingSettings>('sampling').then(c => { if (c) setSampling(c) })
+      })
+  }, [])
+
   const loadCustomDisps = useCallback(async () => {
     const { data } = await supabase.from('custom_dispositions').select('id,label,cls').order('label')
     setCustomDisps((data as CustomDisp[]) || [])
@@ -602,6 +615,39 @@ export default function Inspection({ profile }: { profile: Profile }) {
     if (error) { alert('Failed: ' + error.message); return }
     await recordAmend('Reset report logo to default')
     setLogoUrl(''); setSubmitMsg('Logo reset to default.'); load()
+  }
+
+  // Lot-size edit — available to whoever may edit this inspection: the inspector
+  // while it's a draft/rejected (inspectorEditable), and the admin at any status
+  // (canAmend). `editable` already encodes exactly that. Changing the lot size
+  // recomputes the sample sizes from the sampling standard, the same way New
+  // Inspection does, so the piece counts stay correct.
+  const previewSamples = (() => {
+    const lot = parseInt(editLot || '', 10)
+    if (!sampling || !Number.isFinite(lot) || lot <= 0) return null
+    return sampleSizes(lot, sampling)
+  })()
+  const saveLot = async () => {
+    if (!insp) return
+    const lot = parseInt(editLot || '', 10)
+    if (!Number.isFinite(lot) || lot <= 0) { alert('Enter a valid lot size.'); return }
+    if (!sampling) { alert(t('sampleSettingsMissing')); return }
+    // Online-only: this writes three columns (lot + both samples) and the offline
+    // pending/draft stores don't carry them. A lot-size correction is a review-time
+    // action, done with a connection.
+    if (isOffline()) { alert(t('offlinePoSetup')); return }
+    const sizes = sampleSizes(lot, sampling)
+    if (lot === insp.lot_size && sizes.app === insp.app_sample && sizes.fun === insp.fun_sample) { setEditLot(null); return }
+    setLotBusy(true)
+    const { error } = await supabase.from('inspections')
+      .update({ lot_size: lot, app_sample: sizes.app, fun_sample: sizes.fun, updated_at: new Date().toISOString() })
+      .eq('id', insp.id)
+    setLotBusy(false)
+    if (error) { alert('Could not update lot size: ' + error.message); return }
+    setInsp({ ...insp, lot_size: lot, app_sample: sizes.app, fun_sample: sizes.fun })
+    if (canAmend && insp.status !== 'draft') recordAmend(`Lot size → ${lot} (App ${sizes.app} / Fun ${sizes.fun})`)
+    setEditLot(null)
+    setSubmitMsg(`Lot size updated to ${lot}.`)
   }
 
   const openAmend = () => {
@@ -1181,7 +1227,11 @@ export default function Inspection({ profile }: { profile: Profile }) {
         <div className="row"><h2 style={{ flex:1 }}>{insp.part_no} <span className={`pill ${insp.status}`}>{insp.status}</span></h2></div>
         <p className="muted">{sku.model} · {sku.size} · PCD {sku.pcd} · ET {sku.offset_txt} · CB {sku.cb_mm} · {sku.finish}
           {sku.wheel_weight_kg && <> · {sku.wheel_weight_kg.toFixed(2)} kg</>}</p>
-        <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {appBase} · Fun: {funBase}</p>
+        <p className="muted">{t('poNo')}: {insp.po_no||'—'} · {t('batch')}: {insp.batch||'—'} · {t('lotSize')}: {insp.lot_size} · App: {appBase} · Fun: {funBase}
+          {editable && (
+            <button className="btn ghost" style={{ minHeight:26, padding:'1px 8px', fontSize:12, marginLeft:8 }}
+              onClick={() => setEditLot(String(insp.lot_size))}>✎ {t('editLotSize')}</button>
+          )}</p>
         {insp.status==='rejected' && insp.review_note && <div className="banner bad" style={{ marginTop:8 }}>↩ {insp.review_note}</div>}
         {submitMsg && <div className="banner ok" style={{ marginTop:8 }}>{submitMsg}</div>}
         {insp.amended_at && (
@@ -1226,6 +1276,25 @@ export default function Inspection({ profile }: { profile: Profile }) {
         )}
       </div>
 
+      {editLot !== null && (
+        <div className="modal-overlay" onClick={() => !lotBusy && setEditLot(null)}>
+          <div className="modal" style={{ width:'min(420px,94vw)' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginTop:0 }}>{t('editLotSize')}</h2>
+            <label className="fld"><span>{t('lotSize')}</span>
+              <input className="txt" type="number" min={1} inputMode="numeric" autoFocus
+                value={editLot} onChange={e => setEditLot(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveLot() }} /></label>
+            {previewSamples
+              ? <div className="banner ok" style={{ fontSize:13 }}>{t('appSample')}: {previewSamples.app} · {t('funSample')}: {previewSamples.fun}</div>
+              : !sampling && <div className="banner warn" style={{ fontSize:13 }}>{t('sampleSettingsMissing')}</div>}
+            <p className="muted" style={{ fontSize:12 }}>{t('editLotSizeHint')}</p>
+            <div className="row" style={{ marginTop:12, gap:8 }}>
+              <button className="btn" disabled={lotBusy || !previewSamples} onClick={saveLot}>{lotBusy ? t('saving') : t('save')}</button>
+              <button className="btn ghost" disabled={lotBusy} onClick={() => setEditLot(null)}>{t('cancel')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {amendOpen && (
         <div className="modal-overlay" onClick={() => setAmendOpen(false)}>
           <div className="modal" style={{ width:'min(560px,94vw)', maxHeight:'88vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
