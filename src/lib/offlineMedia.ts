@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import { supabase } from './supabase'
+import { getPendingInspection } from './offlineSync'
 
 const DB_NAME = 'nitra-qc-media'
 const BLOBS = 'blobs'
@@ -173,6 +174,21 @@ export async function deleteQueuedPhoto(rowId: string, storagePath: string): Pro
   await removePendingRow(rowId)
 }
 
+// Discard ALL queued media for an inspection. Call this when an inspection is
+// deleted, so its not-yet-uploaded photos don't outlive it and jam the sync queue
+// (they'd fail forever with no parent row to attach to). Returns how many dropped.
+export async function discardQueuedMediaForInspection(inspectionId: string): Promise<number> {
+  if (!inspectionId) return 0
+  let n = 0
+  for (const r of await getAllPendingRows()) {
+    if (r.inspection_id !== inspectionId) continue
+    await removeLocalMedia(r.storage_path)
+    await removePendingRow(r.id)
+    n++
+  }
+  return n
+}
+
 // Queued photos for one inspection, so the Inspection screen can show them
 // immediately instead of appearing to have lost them. Scoped to the user.
 export async function getPendingPhotosFor(inspectionId: string, userId: string): Promise<PendingPhotoRow[]> {
@@ -216,6 +232,38 @@ export async function syncPendingMedia(userId?: string): Promise<number> {
   lastMediaSyncError = ''        // reset each run; holds the last failure seen this run
   let done = 0
   try {
+    const allRows = await getAllPendingRows()
+
+    // ORPHAN CLEANUP (v102): discard queued photos whose parent inspection was
+    // DELETED. Their insert can never succeed (no parent row), so they'd retry the
+    // ⏳ counter forever — the "9 media waiting · new row violates RLS" case after
+    // an inspector deletes an inspection that still had offline photos queued.
+    // Careful not to discard photos whose parent simply isn't UPLOADED yet:
+    //   - alive on the server  → keep
+    //   - in the pending store (offline-created, not yet synced) → keep
+    //   - neither → deleted → discard
+    // Only runs when the server check SUCCEEDS, so a flaky network never causes a
+    // wrongful discard.
+    try {
+      const mine = allRows.filter(r => (!userId || r.inspector_id === userId) && r.inspection_id)
+      const inspIds = [...new Set(mine.map(r => r.inspection_id as string))]
+      if (inspIds.length) {
+        const { data: existing, error } = await supabase.from('inspections').select('id').in('id', inspIds)
+        if (!error) {
+          const alive = new Set((existing as { id: string }[] || []).map(x => x.id))
+          for (const id of inspIds) {
+            if (alive.has(id)) continue
+            if (await getPendingInspection(id)) continue   // not uploaded yet, not deleted
+            for (const r of mine.filter(rr => rr.inspection_id === id)) {
+              await removeLocalMedia(r.storage_path)
+              await removePendingRow(r.id)
+            }
+            lastMediaSyncError = 'cleared photos for a deleted inspection'
+          }
+        }
+      }
+    } catch { /* verification failed (offline/flaky) — leave everything queued */ }
+
     for (const row of await getAllPendingRows()) {
       if (userId && row.inspector_id !== userId) continue
       try {

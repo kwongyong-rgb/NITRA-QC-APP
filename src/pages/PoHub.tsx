@@ -12,6 +12,7 @@ import CustomerAccessCard from '../components/CustomerAccessCard'
 import { useOnline, isOffline } from '../lib/connectivity'
 import { cacheGetWithMeta, cacheGet, cacheSet, poHubKey, poListKey, type CachedPoHub, type CachedPoGroup } from '../lib/refCache'
 import { getPendingForUser } from '../lib/offlineSync'
+import { discardQueuedMediaForInspection } from '../lib/offlineMedia'
 
 type Insp = CachedPoHub['insps'][number] & { pending?: boolean }
 type Cont = CachedPoHub['conts'][number]
@@ -123,6 +124,9 @@ export default function PoHub({ profile }: { profile: Profile }) {
     if (!still || still.length === 0) {
       const { error } = await supabase.from('inspections').delete().eq('id', r.id)
       if (error) { alert('Delete failed: ' + error.message); return }
+      // Drop any of its offline photos still waiting to upload — otherwise they'd
+      // outlive the inspection and jam the sync queue forever (v102).
+      await discardQueuedMediaForInspection(r.id)
     }
     load()
   }
@@ -141,6 +145,8 @@ export default function PoHub({ profile }: { profile: Profile }) {
   const delPO = async () => {
     if (!online) { alert(t('offlinePoSetup')); return }
     if (!confirm(`Delete the ENTIRE PO “${po || '(No PO)'}”?\n\nThis permanently deletes its ${insps.length} wheel inspection(s) and ${conts.length} container loading(s), including their photos.\n\nThis cannot be undone.`)) return
+    // Drop any queued offline photos for this PO's inspections before deleting them.
+    for (const r of insps) await discardQueuedMediaForInspection(r.id)
     await deletePoLinksAndOrphans(po)
     const { error: e2 } = await supabase.from('container_loadings').delete().eq('po_no', po)
     if (e2) { alert('Delete failed: ' + e2.message); return }
