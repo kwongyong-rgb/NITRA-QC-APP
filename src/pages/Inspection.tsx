@@ -1132,26 +1132,17 @@ export default function Inspection({ profile }: { profile: Profile }) {
 
   const addAppendixPhoto = async (path: string, type: 'photo'|'video') => {
     if (!insp) return
-    let inserted = false
-    try {
-      const { error } = await supabase.from('photos').insert({
-        inspection_id: insp.id, storage_path: path, media_type: type,
-        is_pass_photo: true, item_key: 'appendix', piece_no: 0, comment: '',
-      })
-      inserted = !error
-      if (error && !isNetworkErr(error)) { alert('Could not add appendix photo: ' + error.message); return }
-    } catch { /* offline — falls through to the queue below */ }
-    if (!inserted) {
-      // Offline — queue the row; MediaCapture already kept the file locally.
-      const ok = await savePendingPhotoRow({
-        id: (globalThis.crypto?.randomUUID?.()) || `row-${Date.now()}`,
-        inspection_id: insp.id, container_loading_id: null,
-        storage_path: path, media_type: type, is_pass_photo: true,
-        item_key: 'appendix', piece_no: 0, comment: '',
-        inspector_id: await currentUserId(), savedAt: new Date().toISOString(),
-      })
-      if (!ok) { alert(t('mediaSaveFailed')); return }
-    }
+    // v104 — always queue + background-upload (MediaCapture already saved the file
+    // locally via deferUpload). Instant, and it shows immediately from the queue.
+    const ok = await savePendingPhotoRow({
+      id: (globalThis.crypto?.randomUUID?.()) || `row-${Date.now()}`,
+      inspection_id: insp.id, container_loading_id: null,
+      storage_path: path, media_type: type, is_pass_photo: true,
+      item_key: 'appendix', piece_no: 0, comment: '',
+      inspector_id: await currentUserId(), savedAt: new Date().toISOString(),
+    })
+    if (!ok) { alert(t('mediaSaveFailed')); return }
+    void syncPendingMedia(await currentUserId())
     recordAmend('Added an appendix photo')
     afterPhotoChange()
   }
@@ -1524,7 +1515,7 @@ export default function Inspection({ profile }: { profile: Profile }) {
             <p className="muted" style={{ fontSize:12, margin:'8px 0 10px' }}>Extra photos or videos not related to any inspection parameter (shown in a dedicated Appendix on the report).</p>
             {(editable || canAmend) && (
               <div style={{ maxWidth:340, marginBottom:12 }}>
-                <MediaCapture label="Add appendix photo" onUploaded={addAppendixPhoto} />
+                <MediaCapture deferUpload label="Add appendix photo" onUploaded={addAppendixPhoto} />
               </div>
             )}
             {(() => {

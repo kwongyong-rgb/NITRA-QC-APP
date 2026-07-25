@@ -2,9 +2,37 @@ import { useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18n'
 import { isOffline } from '../lib/connectivity'
-import { saveLocalMedia, savePendingPhotoRow, mediaUrlFor, currentUserId, type PendingPhotoRow } from '../lib/offlineMedia'
+import { saveLocalMedia, savePendingPhotoRow, mediaUrlFor, currentUserId, syncPendingMedia, type PendingPhotoRow } from '../lib/offlineMedia'
 
 const fmtMB = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
+// v104 — downscale + re-encode a captured PHOTO to ~1.2 MB so uploads are quick
+// on weak signal and storage stays small. Targets ~2000px on the long edge (a
+// deliberate middle ground: the appearance standard judges 0.8 mm paint spots, so
+// this keeps defects readable while cutting file size ~60–70% from a raw 3–5 MB
+// camera photo). FAIL-SAFE: any problem returns the original file untouched, so a
+// photo is never lost or corrupted by compression. Videos are never touched.
+async function compressImage(file: Blob, maxDim = 2000, targetBytes = 1_200_000): Promise<Blob> {
+  if (!file.type.startsWith('image/')) return file
+  try {
+    const bmp = await createImageBitmap(file)
+    let w = bmp.width, h = bmp.height
+    const scale = Math.min(1, maxDim / Math.max(w, h))
+    w = Math.max(1, Math.round(w * scale)); h = Math.max(1, Math.round(h * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { bmp.close?.(); return file }
+    ctx.drawImage(bmp, 0, 0, w, h)
+    bmp.close?.()
+    const encode = (q: number) => new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', q))
+    let q = 0.82
+    let out = await encode(q)
+    while (out && out.size > targetBytes && q > 0.45) { q -= 0.1; out = await encode(q) }
+    // Only use it if it actually helped (a tiny photo can re-encode larger).
+    return (out && out.size < file.size) ? out : file
+  } catch { return file }
+}
 
 // Queue a photos-table row that couldn't be inserted (offline). Returns true if
 // it was queued, so callers can distinguish "saved locally" from "lost".
@@ -44,7 +72,14 @@ interface BaseProps {
 }
 
 // ── Media capture: photo or video ──
-export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string, type: 'photo'|'video') => void; label: string }) {
+// deferUpload (v104): for INSPECTION photos, don't upload here at all — compress,
+// save to the device, and return immediately so the inspector can save and move to
+// the next parameter without waiting. The row is queued by the modal and the
+// background sync uploads it (then deletes the local copy). This is also what fixes
+// "save before the upload finishes and the +1 doesn't show": the photo is recorded
+// from the local queue instantly, not gated on the upload. Container photos leave
+// deferUpload off and keep uploading inline (they're online-only).
+export function MediaCapture({ onUploaded, label, deferUpload }: { onUploaded: (path: string, type: 'photo'|'video') => void; label: string; deferUpload?: boolean }) {
   const { t } = useI18n()
   const photoRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
@@ -63,22 +98,26 @@ export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string,
       if (!confirm(t('offlineVideoWarn').replace('{SIZE}', fmtMB(f.size)))) return
     }
 
+    setUploading(true)
+    // Compress photos (never videos). Fail-safe: returns the original on any error.
+    const blob: Blob = type === 'photo' ? await compressImage(f) : f
+
     const keepLocally = async (): Promise<boolean> => {
-      const ok = await saveLocalMedia(path, f, type)
+      const ok = await saveLocalMedia(path, blob, type)
       if (!ok) { alert(t('mediaSaveFailed')); return false }
       onUploaded(path, type)   // caller carries on exactly as if it had uploaded
       return true
     }
 
-    setUploading(true)
-    // Known-offline: skip the 3 retries and ~4.5s of pointless backoff.
-    if (isOffline()) { setUploading(false); await keepLocally(); return }
+    // Inspection photos: defer the upload to the background queue (non-blocking).
+    // Same local-save path as offline — the modal queues the row + kicks a sync.
+    if (deferUpload || isOffline()) { setUploading(false); await keepLocally(); return }
 
-    // Weak-WiFi protection: retry up to 3 times with backoff before failing.
+    // Container / online-only: weak-WiFi retry up to 3 times before falling back.
     let error: { message: string } | null = null
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const res = await supabase.storage.from('qc-photos').upload(path, f, { contentType: f.type, upsert: true })
+        const res = await supabase.storage.from('qc-photos').upload(path, blob, { contentType: blob.type, upsert: true })
         error = res.error
       } catch (e) { error = { message: e instanceof Error ? e.message : String(e) } }
       if (!error) break
@@ -86,9 +125,8 @@ export function MediaCapture({ onUploaded, label }: { onUploaded: (path: string,
     }
     setUploading(false)
     if (!error) { onUploaded(path, type); return }
-    // Upload failed (dead uplink, captive portal, weak signal). Rather than the
-    // old "the photo is still on your device" — which wasn't true in any
-    // recoverable sense — actually keep it and upload on reconnect.
+    // Upload failed (dead uplink, captive portal, weak signal) — keep it and let
+    // the background sync upload on reconnect.
     await keepLocally()
   }
 
@@ -170,29 +208,17 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
     }
 
     if (mediaPath) {
-      let inserted = false
-      // Only attempt the insert if we have a defect to hang it off; otherwise go
-      // straight to the queue (a photo row with a bogus defect_id would be worse).
-      if (defectId) {
-        try {
-          const { error } = await supabase.from('photos').insert({
-            inspection_id: inspectionId, defect_id: defectId,
-            storage_path: mediaPath, media_type: mediaType,
-            is_pass_photo: false, item_key: itemKey, piece_no: pieceNo, comment,
-          })
-          inserted = !error
-        } catch { /* offline — falls through to the queue below */ }
-      }
-      if (!inserted) {
-        // Queue it. defect_id is filled in during sync by matching
-        // item_key + piece_no against the rebuilt defect.
-        const ok = await queuePhotoRow({
-          inspection_id: inspectionId, container_loading_id: null,
-          storage_path: mediaPath, media_type: mediaType, is_pass_photo: false,
-          item_key: itemKey, piece_no: pieceNo, comment,
-        })
-        if (!ok) { setSaving(false); alert(t('mediaSaveFailed')); return }
-      }
+      // v104 — ALWAYS queue the photo (online too) so saving is instant and the
+      // upload happens in the background. The +1 reflects immediately because the
+      // photo comes from the local queue, not from a completed upload. defect_id is
+      // linked during sync by matching item_key + piece_no against the defect.
+      const ok = await queuePhotoRow({
+        inspection_id: inspectionId, container_loading_id: null,
+        storage_path: mediaPath, media_type: mediaType, is_pass_photo: false,
+        item_key: itemKey, piece_no: pieceNo, comment,
+      })
+      if (!ok) { setSaving(false); alert(t('mediaSaveFailed')); return }
+      void syncPendingMedia(await currentUserId())   // kick the background upload now (no-op offline)
     }
     setSaving(false); onDone()
   }
@@ -231,7 +257,7 @@ export function DefectModal({ inspectionId, itemKey, itemLabel, pieceNo, tab, on
                     : <img src={mediaUrl} style={{ width:'100%', maxHeight:200, objectFit:'cover', borderRadius:8 }} />}
                 </div>
               : <div style={{ background:'var(--steel)', height:80, borderRadius:8, display:'grid', placeItems:'center', color:'var(--ink-soft)', marginBottom:8 }}>No media yet</div>}
-            <MediaCapture label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const u = await mediaUrlFor(path); if (u) setMediaUrl(u) }} />
+            <MediaCapture deferUpload label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const u = await mediaUrlFor(path); if (u) setMediaUrl(u) }} />
           </div>
         </div>
         <div className="row" style={{ marginTop:16 }}>
@@ -257,27 +283,17 @@ export function PassPhotoModal({ inspectionId, itemKey, itemLabel, pieceNo, tab:
   const save = async () => {
     if (!mediaPath) { onDone(); return }
     setSaving(true)
-    let inserted = false
-    // Known-offline: skip the doomed insert. Offline it doesn't fail fast — it
-    // HANGS until the network times out (up to ~a minute for the first one, then
-    // quicker once iOS marks the host unreachable), which is why the first offline
-    // photo took forever to save. Same guard MediaCapture already uses.
-    if (!isOffline()) {
-      try {
-        const { error } = await supabase.from('photos').insert({
-          inspection_id: inspectionId, storage_path: mediaPath, media_type: mediaType,
-          is_pass_photo: true, item_key: itemKey, piece_no: pieceNo, comment,
-        })
-        inserted = !error
-      } catch { /* offline — falls through to the queue below */ }
-    }
-    if (!inserted) {
+    // v104 — always queue + background-upload (see DefectModal.save). Instant save,
+    // upload in the background, +1 reflects immediately, local copy auto-deleted
+    // once uploaded. No inline insert to hang on a slow/failing connection.
+    {
       const ok = await queuePhotoRow({
         inspection_id: inspectionId, container_loading_id: null,
         storage_path: mediaPath, media_type: mediaType, is_pass_photo: true,
         item_key: itemKey, piece_no: pieceNo, comment,
       })
       if (!ok) { setSaving(false); alert(t('mediaSaveFailed')); return }
+      void syncPendingMedia(await currentUserId())
     }
     setSaving(false); onDone()
   }
@@ -297,7 +313,7 @@ export function PassPhotoModal({ inspectionId, itemKey, itemLabel, pieceNo, tab:
                 : <img src={mediaUrl} style={{ width:'100%', maxHeight:220, objectFit:'cover', borderRadius:8 }} />}
             </div>
           : <div style={{ background:'var(--steel)', height:100, borderRadius:8, display:'grid', placeItems:'center', color:'var(--ink-soft)', marginBottom:10 }}>No media yet</div>}
-        <MediaCapture label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const u = await mediaUrlFor(path); if (u) setMediaUrl(u) }} />
+        <MediaCapture deferUpload label={mediaUrl ? 'Retake' : t('takePhoto')} onUploaded={async (path, type) => { setMediaPath(path); setMediaType(type); const u = await mediaUrlFor(path); if (u) setMediaUrl(u) }} />
         <label className="fld" style={{ marginTop:10 }}><span>{t('comment')}</span>
           <textarea className="txt" rows={2} value={comment} onChange={e => setComment(e.target.value)} />
         </label>
